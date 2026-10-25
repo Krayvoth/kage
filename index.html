@@ -78,7 +78,7 @@ footer{text-align:center;margin-top:30px;color:#94a3b8;font-size:13px}
     </div>
   </div>
 
-  <footer>Kage Translate • Faqat tekin • v9</footer>
+  <footer>Kage Translate • Faqat tekin • v11</footer>
 </div>
 
 <script>
@@ -140,50 +140,47 @@ async function translate(text,from,to){
   return null;
 }
 
-// ---- 1) Oq pufakchalarni topish ----
+// ---- 1) Bir xil rangli yopiq joylarni (pufakcha, izoh qutisi) topish ----
 function findBubbles(ctx,W,H){
-  const d=ctx.getImageData(0,0,W,H).data;
-  const white=new Uint8Array(W*H);
-  for(let i=0,p=0;i<W*H;i++,p+=4){ if(d[p]>=215&&d[p+1]>=215&&d[p+2]>=215) white[i]=1; }
-  const seen=new Uint8Array(W*H),stack=new Int32Array(W*H),res=[];
-  for(let s=0;s<W*H;s++){
-    if(!white[s]||seen[s]) continue;
-    let sp=0;stack[sp++]=s;seen[s]=1;
+  const d=ctx.getImageData(0,0,W,H).data,N=W*H;
+  const g=new Uint8Array(N);
+  for(let i=0,p=0;i<N;i++,p+=4) g[i]=(d[p]*299+d[p+1]*587+d[p+2]*114)/1000;
+  const lab=new Int32Array(N),stack=new Int32Array(N),res=[];
+  const near=(i,j)=>{
+    if(g[j]<110||lab[j]) return false;
+    const p=i*4,q=j*4;
+    return Math.abs(d[p]-d[q])+Math.abs(d[p+1]-d[q+1])+Math.abs(d[p+2]-d[q+2])<=24;
+  };
+  let id=0;
+  for(let s=0;s<N;s++){
+    if(lab[s]||g[s]<110) continue;
+    id++;
+    let sp=0;stack[sp++]=s;lab[s]=id;
     let x0=W,y0=H,x1=0,y1=0,area=0;
     while(sp){
       const i=stack[--sp],x=i%W,y=(i-x)/W;area++;
       if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y;
-      if(x>0&&white[i-1]&&!seen[i-1]){seen[i-1]=1;stack[sp++]=i-1;}
-      if(x<W-1&&white[i+1]&&!seen[i+1]){seen[i+1]=1;stack[sp++]=i+1;}
-      if(y>0&&white[i-W]&&!seen[i-W]){seen[i-W]=1;stack[sp++]=i-W;}
-      if(y<H-1&&white[i+W]&&!seen[i+W]){seen[i+W]=1;stack[sp++]=i+W;}
+      if(x>0&&near(i,i-1)){lab[i-1]=id;stack[sp++]=i-1;}
+      if(x<W-1&&near(i,i+1)){lab[i+1]=id;stack[sp++]=i+1;}
+      if(y>0&&near(i,i-W)){lab[i-W]=id;stack[sp++]=i-W;}
+      if(y<H-1&&near(i,i+W)){lab[i+W]=id;stack[sp++]=i+W;}
     }
     const bw=x1-x0+1,bh=y1-y0+1;
     if(area<2500||bw<50||bh<35) continue;
     if(bw>W*0.98&&bh>H*0.5) continue;
-    if(area/(bw*bh)<0.4) continue;
-    res.push({s,x0,y0,bw,bh});
+    if(area/(bw*bh)<0.4||area>0.5*W*H) continue;
+    res.push({id,s,x0,y0,bw,bh});
   }
-  return {res,white};
+  return {res,white:lab};
 }
-// ---- 2) Pufakcha ichki maskasi (matn teshiklari ham ichida) ----
-function interiorMask(white,W,b){
-  const {x0,y0,bw,bh,s}=b,N=bw*bh;
+
+// ---- 2) Ichki maska (matn teshiklari ham ichida) ----
+function interiorMask(lab,W,b){
+  const {x0,y0,bw,bh,id}=b,N=bw*bh;
   const comp=new Uint8Array(N),out=new Uint8Array(N),st=new Int32Array(N);
+  for(let y=0;y<bh;y++){const row=(y0+y)*W+x0;for(let x=0;x<bw;x++) if(lab[row+x]===id) comp[y*bw+x]=1;}
   let sp=0;
-  const sl=(Math.floor(s/W)-y0)*bw+((s%W)-x0);
-  st[sp++]=sl;comp[sl]=1;
-  while(sp){
-    const i=st[--sp],x=i%bw,y=(i-x)/bw;
-    const nb=[[x-1,y],[x+1,y],[x,y-1],[x,y+1]];
-    for(const [nx,ny] of nb){
-      if(nx<0||ny<0||nx>=bw||ny>=bh) continue;
-      const j=ny*bw+nx;
-      if(!comp[j]&&white[(y0+ny)*W+x0+nx]){comp[j]=1;st[sp++]=j;}
-    }
-  }
   const push=j=>{if(!comp[j]&&!out[j]){out[j]=1;st[sp++]=j;}};
-  sp=0;
   for(let x=0;x<bw;x++){push(x);push((bh-1)*bw+x);}
   for(let y=0;y<bh;y++){push(y*bw);push(y*bw+bw-1);}
   while(sp){
@@ -249,8 +246,7 @@ translateBtn.addEventListener('click',async()=>{
     canvas.width=W;canvas.height=H;
     const ctx=canvas.getContext('2d',{willReadFrequently:true});
     ctx.drawImage(img,0,0);
-
-    showStatus('Pufakchalar qidirilmoqda...','loading');
+showStatus('Pufakchalar qidirilmoqda...','loading');
     await sleep(50);
     const {res:bubbles,white}=findBubbles(ctx,W,H);
     if(!bubbles.length){
@@ -259,7 +255,7 @@ translateBtn.addEventListener('click',async()=>{
     }
 
     const list=bubbles.filter((b,i)=>!bubbles.some((a,j)=>j!==i&&a.bw*a.bh>b.bw*b.bh&&a.x0<=b.x0&&a.y0<=b.y0&&a.x0+a.bw>=b.x0+b.bw&&a.y0+a.bh>=b.y0+b.bh));
-    const all=[],jobs=[];let done=0,failed=0;
+    const all=[],jobs=[],skipped=[];let done=0,failed=0;
     for(let n=0;n<list.length;n++){
       showStatus(`Pufakcha ${n+1}/${list.length}...`,'loading');
       const b=list[n];
@@ -280,7 +276,13 @@ translateBtn.addEventListener('click',async()=>{
           if(x<tx0)tx0=x;if(x>tx1)tx1=x;if(y<ty0)ty0=y;if(y>ty1)ty1=y;
         }
       }
-      if(holes<40||holes/(inter||1)>0.4) continue; // bo'sh yoki oq bo'lmagan joy
+      if(holes<40||holes/(inter||1)>0.4) continue; // bo'sh yoki matnsiz joy
+      { // fon bir xil rangda bo'lishi kerak (rasm qismi emas)
+        let n=0,sm=0,sq=0;
+        for(let i=0;i<b.bw*b.bh;i+=5){ if(comp[i]){const p=i*4,l=(px[p]*299+px[p+1]*587+px[p+2]*114)/1000;n++;sm+=l;sq+=l*l;} }
+        if(n<50) continue;
+        const mean=sm/n; if(Math.sqrt(Math.max(0,sq/n-mean*mean))>28) continue;
+      }
 
       const c1=document.createElement('canvas');c1.width=b.bw;c1.height=b.bh;
       c1.getContext('2d').putImageData(cropData,0,0);
@@ -298,28 +300,35 @@ translateBtn.addEventListener('click',async()=>{
         if(r2.data.confidence>data.confidence) data=r2.data;
       }
       const txt=(data.text||'').replace(/[^\p{L}\p{N}'’ʻ".,!?\-:; \n]/gu,' ').replace(/\s+/g,' ').trim();
-      if(data.confidence<35||txt.replace(/[^\p{L}]/gu,'').length<2) continue;
+      const lettersN=txt.replace(/[^\p{L}]/gu,'').length,alnumN=txt.replace(/[^\p{L}\p{N}]/gu,'').length||1;
+      if(data.confidence<20||lettersN<2||lettersN/alnumN<0.8){ skipped.push(Math.round(data.confidence)+'%:'+txt.slice(0,20)); continue; }
 
-      const tr=await translate(txt,from,to);
+      let tr=await translate(txt,from,to);
       if(!tr){failed++;continue;}
+      if(to==='uz') tr=tr.replace(/([OoGg])['’‘`´]/g,'$1ʻ');
       all.push(tr);
 
-      // Pufakcha ichini oqartirish
+      // Pufakcha ichini asl fon rangi bilan to'ldirish
+      const sR=[],sG=[],sB=[];
+      for(let i=0;i<b.bw*b.bh;i+=5){ if(comp[i]){const p=i*4;sR.push(px[p]);sG.push(px[p+1]);sB.push(px[p+2]);} }
+      const md=a=>a.sort((u,v)=>u-v)[a.length>>1]||255;
+      const fr=md(sR),fg=md(sG),fb=md(sB);
+      const flum=0.299*fr+0.587*fg+0.114*fb;
       for(let i=0;i<b.bw*b.bh;i++){
-        if(!out[i]){const p=i*4;px[p]=px[p+1]=px[p+2]=255;}
+        if(!out[i]){const p=i*4;px[p]=fr;px[p+1]=fg;px[p+2]=fb;}
       }
       ctx.putImageData(id,b.x0,b.y0);
 
       // Matn joyi: eski matn markazida
       const hw=tx1-tx0+1,hh=ty1-ty0+1;
       const cx=tx0+hw/2,cy=ty0+hh/2;
-      const rectLike=inter/(b.bw*b.bh)>0.88;
+      const rectLike=inter/(b.bw*b.bh)>0.88||flum<235;
       const fw=rectLike?0.92:0.70,fh=rectLike?0.92:0.66;
       let rw=Math.min(b.bw*fw,Math.max(hw*1.1,b.bw*0.5));
       let rh=Math.min(b.bh*fh,Math.max(hh*1.1,b.bh*0.45));
       let rx=Math.max(b.bw*0.04,Math.min(b.bw-rw-b.bw*0.04,cx-rw/2));
       let ry=Math.max(b.bh*0.04,Math.min(b.bh-rh-b.bh*0.04,cy-rh/2));
-      jobs.push({t:tr.toUpperCase(),x:b.x0+rx,y:b.y0+ry,w:rw,h:rh,m:Math.round(Math.min(W/16,hh/2))});
+      jobs.push({c:'#000',t:tr.toUpperCase(),x:b.x0+rx,y:b.y0+ry,w:rw,h:rh,m:Math.round(Math.min(W/16,hh/2))});
       done++;
       await sleep(150);
     }
@@ -328,7 +337,7 @@ translateBtn.addEventListener('click',async()=>{
       const cap=Math.round(sz[sz.length>>1]*1.15);
       for(const j of jobs){
         const L=layoutText(ctx,j.t,j.w,j.h,Math.min(j.m,cap));
-        ctx.font=L.font;ctx.fillStyle='#000';ctx.textAlign='center';ctx.textBaseline='middle';
+        ctx.font=L.font;ctx.fillStyle=j.c;ctx.textAlign='center';ctx.textBaseline='middle';
         const lh=L.size*1.15,sy=j.y+j.h/2-(L.lines.length*lh)/2+lh/2;
         L.lines.forEach((l,i)=>ctx.fillText(l,j.x+j.w/2,sy+i*lh));
       }
@@ -337,7 +346,7 @@ translateBtn.addEventListener('click',async()=>{
     translatedText.value=all.join('\n\n');
     resultSection.classList.add('show');
     if(!done) showStatus('Tarjima qilingan pufakcha topilmadi'+(failed?' (tarjima limiti tugagan bo‘lishi mumkin)':''),'error');
-    else showStatus(`${done}/${list.length} ta pufakcha tarjima qilindi`+(failed?`, ${failed} tasi tarjimon xatosi sababli qilinmadi`:''),'loading');
+    else showStatus(`${done}/${list.length} ta pufakcha tarjima qilindi`+(failed?`, ${failed} tasi tarjimon xatosi sababli qilinmadi`:'')+(skipped.length?` | o‘qilmadi: ${skipped.slice(0,4).join(' ; ')}`:''),'loading');
     resultSection.scrollIntoView({behavior:'smooth'});
   }catch(err){
     console.error(err);
