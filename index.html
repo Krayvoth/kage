@@ -78,7 +78,7 @@ footer{text-align:center;margin-top:30px;color:#94a3b8;font-size:13px}
     </div>
   </div>
 
-  <footer>Kage Translate • Faqat tekin • v12</footer>
+  <footer>Kage Translate • Faqat tekin • v14</footer>
 </div>
 
 <script>
@@ -167,6 +167,21 @@ function findBubbles(ctx,W,H){
       if(y<H-1&&near(i,i+W)){lab[i+W]=id;stack[sp++]=i+W;}
     }
     const bw=x1-x0+1,bh=y1-y0+1;
+    if(area<2500||bw<50||bh<35) continue;
+    if(bw>W*0.98&&bh>H*0.5) continue;
+    if(area/(bw*bh)<0.4||area>0.5*W*H) continue;
+    res.push({id,s,x0,y0,bw,bh});
+  }
+  return {res,white:lab};
+}
+
+// ---- 2) Ichki maska (matn teshiklari ham ichida) ----
+function interiorMask(lab,W,b){
+  const {x0,y0,bw,bh,id}=b,N=bw*bh;
+  const comp=new Uint8Array(N),out=new Uint8Array(N),st=new Int32Array(N);
+  for(let y=0;y<bh;y++){const row=(y0+y)*W+x0;for(let x=0;x<bw;x++) if(lab[row+x]===id) comp[y*bw+x]=1;}
+  let sp=0;
+  const push=j=>{if(!comp[j]&&!out[j]){out[j]=1;st[sp++]=j;}};
   for(let x=0;x<bw;x++){push(x);push((bh-1)*bw+x);}
   for(let y=0;y<bh;y++){push(y*bw);push(y*bw+bw-1);}
   while(sp){
@@ -197,6 +212,38 @@ function drawFit(ctx,text,x,y,w,h,color,maxS){
   lines.forEach((l,i)=>ctx.fillText(l,x+w/2,sy+i*lh));
 }
 
+// Ichki maskadagi eng katta to'rtburchak (matn shu yerga sig'adi)
+function maxRect(inside,bw,bh){
+  const hts=new Int32Array(bw),stk=new Int32Array(bw+1);
+  let best={a:0,x:0,y:0,w:0,h:0};
+  for(let y=0;y<bh;y++){
+    for(let x=0;x<bw;x++) hts[x]=inside[y*bw+x]?hts[x]+1:0;
+    let sp=0;
+    for(let x=0;x<=bw;x++){
+      const cur=x<bw?hts[x]:0;
+      while(sp&&hts[stk[sp-1]]>=cur){
+        const hh=hts[stk[--sp]],left=sp?stk[sp-1]+1:0,w=x-left,a=hh*w;
+        if(a>best.a) best={a,x:left,y:y-hh+1,w,h:hh};
+      }
+      stk[sp++]=x;
+    }
+  }
+  return best;
+}
+// OCR natijasi haqiqiy matnga o'xshaydimi (rasm qismidan chiqqan axlat emasmi)
+const SHORTW=new Set(['no','oh','ah','uh','ok','hi','go','so','me','we','he','it','is','in','on','to','of','or','up','if','by','my','as','at','be','do','an','am','us','i','a']);
+function plausible(txt,data){
+  const toks=txt.split(' ').filter(Boolean);
+  const good=toks.filter(w=>{
+    const l=w.replace(/[^\p{L}]/gu,'');
+    return (l.length>=3&&/[aeiouyAEIOUY]/.test(l))||(l.length>=1&&l.length<=2&&SHORTW.has(l.toLowerCase()));
+  });
+  if(!good.length||good.length/toks.length<0.5) return false;
+  const ws=data.words||(data.blocks||[]).flatMap(b=>(b.paragraphs||[]).flatMap(p=>(p.lines||[]).flatMap(l=>l.words||[])));
+  if(!ws.length) return data.confidence>=40;
+  return ws.filter(w=>w.confidence>=55&&w.text.replace(/[^\p{L}]/gu,'').length>=2).length>=1;
+}
+
 function layoutText(ctx,text,w,h,maxS){
   const font=s=>`bold ${s}px "Comic Sans MS","Segoe UI",Arial,sans-serif`;
   let size=Math.min(maxS||44,Math.floor(h)),lines=[];
@@ -214,6 +261,7 @@ function layoutText(ctx,text,w,h,maxS){
   }
   return {size,lines,font:font(size)};
 }
+
 translateBtn.addEventListener('click',async()=>{
   if(!selectedUrl) return;
   translateBtn.disabled=true;
@@ -270,6 +318,20 @@ translateBtn.addEventListener('click',async()=>{
         if(n<50) continue;
         const mean=sm/n; fillL=mean; if(Math.sqrt(Math.max(0,sq/n-mean*mean))>28) continue;
       }
+      { // chegarasi qora chiziq bilan o'ralgan bo'lishi kerak (yuz, kiyim kabi rasm qismlarini chiqarib tashlaydi)
+        const bw=b.bw,bh=b.bh;let tot=0,dk=0;
+        const lumAt=(x,y)=>{if(x<0||y<0||x>=bw||y>=bh) return 0;const p=(y*bw+x)*4;return (px[p]*299+px[p+1]*587+px[p+2]*114)/1000;};
+        const dirs=[[1,0],[-1,0],[0,1],[0,-1]];
+        for(let y=0;y<bh;y+=2){for(let x=0;x<bw;x+=2){
+          if(!comp[y*bw+x]) continue;
+          for(const [dx,dy] of dirs){
+            const nx=x+dx,ny=y+dy;
+            if(nx>=0&&ny>=0&&nx<bw&&ny<bh&&comp[ny*bw+nx]) continue;
+            tot++; if(lumAt(nx,ny)<110||lumAt(x+dx*2,y+dy*2)<110||lumAt(x+dx*3,y+dy*3)<110) dk++; break;
+          }
+        }}
+        if(tot<20||dk/tot<0.55) continue;
+      }
 
       const c1=document.createElement('canvas');c1.width=b.bw;c1.height=b.bh;
       c1.getContext('2d').putImageData(cropData,0,0);
@@ -277,6 +339,14 @@ translateBtn.addEventListener('click',async()=>{
       const c2=document.createElement('canvas');c2.width=b.bw*sc;c2.height=b.bh*sc;
       const c2x=c2.getContext('2d');c2x.imageSmoothingQuality='high';
       c2x.drawImage(c1,0,0,c2.width,c2.height);
+      if(fillL>=150){
+        const bd=c2x.getImageData(0,0,c2.width,c2.height),T=fillL*0.62;
+        for(let i=0;i<bd.data.length;i+=4){
+          const l=(bd.data[i]*299+bd.data[i+1]*587+bd.data[i+2]*114)/1000,v=l<T?0:255;
+          bd.data[i]=bd.data[i+1]=bd.data[i+2]=v;
+        }
+        c2x.putImageData(bd,0,0);
+      }
 
       let {data}=await worker.recognize(c2);
       if(data.confidence<55){
@@ -290,7 +360,7 @@ translateBtn.addEventListener('click',async()=>{
       const lettersN=txt.replace(/[^\p{L}]/gu,'').length,alnumN=txt.replace(/[^\p{L}\p{N}]/gu,'').length||1;
       const toks=txt.split(' ').filter(Boolean);
       const vowelOk=toks.filter(w=>w.length<=2||/[aeiouyAEIOUY]/.test(w)).length/(toks.length||1);
-      if(data.confidence<(fillL<235?50:20)||lettersN<2||lettersN/alnumN<0.8||vowelOk<0.6){ skipped.push(Math.round(data.confidence)+'%:'+txt.slice(0,20)); continue; }
+      if(data.confidence<(fillL<235?50:20)||lettersN<2||lettersN/alnumN<0.8||!plausible(txt,data)){ skipped.push(Math.round(data.confidence)+'%:'+txt.slice(0,20)); continue; }
 
       let tr=await translate(txt,from,to);
       if(!tr){failed++;continue;}
@@ -311,12 +381,16 @@ translateBtn.addEventListener('click',async()=>{
       // Matn joyi: eski matn markazida
       const hw=tx1-tx0+1,hh=ty1-ty0+1;
       const cx=tx0+hw/2,cy=ty0+hh/2;
-      const rectLike=inter/(b.bw*b.bh)>0.88||flum<235;
-      const fw=rectLike?0.92:0.70,fh=rectLike?0.92:0.66;
-      let rw=Math.min(b.bw*fw,Math.max(hw*1.1,b.bw*0.5));
-      let rh=Math.min(b.bh*fh,Math.max(hh*1.1,b.bh*0.45));
-      let rx=Math.max(b.bw*0.04,Math.min(b.bw-rw-b.bw*0.04,cx-rw/2));
-      let ry=Math.max(b.bh*0.04,Math.min(b.bh-rh-b.bh*0.04,cy-rh/2));
+      const ins=new Uint8Array(b.bw*b.bh);
+      for(let i=0;i<ins.length;i++) ins[i]=out[i]?0:1;
+      const mr=maxRect(ins,b.bw,b.bh);
+      const mg=Math.max(3,Math.round(Math.min(mr.w,mr.h)*0.04));
+      let rx,ry,rw,rh;
+      if(mr.w>=24&&mr.h>=14){rx=mr.x+mg;ry=mr.y+mg;rw=mr.w-2*mg;rh=mr.h-2*mg;}
+      else{
+        rw=Math.min(b.bw*0.7,Math.max(hw*1.1,b.bw*0.5));rh=Math.min(b.bh*0.66,Math.max(hh*1.1,b.bh*0.45));
+        rx=Math.max(0,Math.min(b.bw-rw,cx-rw/2));ry=Math.max(0,Math.min(b.bh-rh,cy-rh/2));
+      }
       jobs.push({c:'#000',t:tr.toUpperCase(),x:b.x0+rx,y:b.y0+ry,w:rw,h:rh,m:Math.round(Math.min(W/16,hh/2))});
       done++;
       await sleep(150);
