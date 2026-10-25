@@ -1,368 +1,248 @@
 <!DOCTYPE html>
 <html lang="uz">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Kage Translate</title>
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    }
-
-    body {
-      background: #f5f7fa;
-      color: #1a1a1a;
-      min-height: 100vh;
-      padding: 20px;
-    }
-
-    .container {
-      max-width: 600px;
-      margin: 0 auto;
-    }
-
-    header {
-      text-align: center;
-      margin-bottom: 30px;
-    }
-
-    header h1 {
-      font-size: 28px;
-      font-weight: 700;
-      color: #1e40af;
-    }
-
-    header p {
-      color: #64748b;
-      margin-top: 6px;
-      font-size: 15px;
-    }
-
-    .card {
-      background: white;
-      border-radius: 16px;
-      padding: 24px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.06);
-      margin-bottom: 20px;
-    }
-
-    .row {
-      display: flex;
-      gap: 12px;
-      margin-bottom: 16px;
-    }
-
-    .row > div {
-      flex: 1;
-    }
-
-    label {
-      display: block;
-      font-size: 13px;
-      font-weight: 600;
-      color: #475569;
-      margin-bottom: 6px;
-    }
-
-    select, button, textarea {
-      width: 100%;
-      padding: 12px 14px;
-      border: 1px solid #e2e8f0;
-      border-radius: 10px;
-      font-size: 15px;
-      background: #fff;
-    }
-
-    select:focus, textarea:focus {
-      outline: none;
-      border-color: #3b82f6;
-    }
-
-    .upload-area {
-      border: 2px dashed #cbd5e1;
-      border-radius: 12px;
-      padding: 40px 20px;
-      text-align: center;
-      cursor: pointer;
-      transition: 0.2s;
-      background: #f8fafc;
-    }
-
-    .upload-area:hover, .upload-area.dragover {
-      border-color: #3b82f6;
-      background: #eff6ff;
-    }
-
-    .upload-area p {
-      color: #64748b;
-      font-size: 15px;
-    }
-
-    .upload-area small {
-      color: #94a3b8;
-      font-size: 13px;
-    }
-
-    #preview {
-      max-width: 100%;
-      max-height: 300px;
-      border-radius: 10px;
-      margin-top: 16px;
-      display: none;
-    }
-
-    .btn {
-      background: #1e40af;
-      color: white;
-      border: none;
-      font-weight: 600;
-      cursor: pointer;
-      transition: 0.2s;
-      margin-top: 8px;
-    }
-
-    .btn:hover {
-      background: #1e3a8a;
-    }
-
-    .btn:disabled {
-      background: #94a3b8;
-      cursor: not-allowed;
-    }
-
-    .btn-secondary {
-      background: #64748b;
-    }
-
-    .btn-secondary:hover {
-      background: #475569;
-    }
-.status {
-      text-align: center;
-      padding: 12px;
-      border-radius: 10px;
-      margin: 16px 0;
-      font-size: 14px;
-      display: none;
-    }
-
-    .status.loading {
-      background: #eff6ff;
-      color: #1e40af;
-      display: block;
-    }
-
-    .status.error {
-      background: #fef2f2;
-      color: #b91c1c;
-      display: block;
-    }
-
-    .result-section {
-      display: none;
-    }
-
-    .result-section.show {
-      display: block;
-    }
-
-    textarea {
-      min-height: 120px;
-      resize: vertical;
-      line-height: 1.5;
-    }
-
-    .actions {
-      display: flex;
-      gap: 10px;
-      margin-top: 16px;
-    }
-
-    .actions button {
-      flex: 1;
-    }
-
-    footer {
-      text-align: center;
-      margin-top: 40px;
-      color: #94a3b8;
-      font-size: 13px;
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kage Translate</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+body{background:#f5f7fa;color:#1a1a1a;min-height:100vh;padding:20px}
+.container{max-width:600px;margin:0 auto}
+header{text-align:center;margin-bottom:24px}
+header h1{font-size:28px;color:#1e40af}
+header p{color:#64748b;margin-top:6px;font-size:15px}
+.card{background:#fff;border-radius:16px;padding:20px;box-shadow:0 4px 12px rgba(0,0,0,.06);margin-bottom:20px}
+.row{display:flex;gap:12px;margin-bottom:16px}
+.row>div{flex:1}
+label{display:block;font-size:13px;font-weight:600;color:#475569;margin-bottom:6px}
+select,button,textarea{width:100%;padding:12px 14px;border:1px solid #e2e8f0;border-radius:10px;font-size:15px;background:#fff}
+.upload-area{border:2px dashed #cbd5e1;border-radius:12px;padding:30px 20px;text-align:center;cursor:pointer;background:#f8fafc}
+.upload-area p{color:#64748b}
+.upload-area small{color:#94a3b8}
+#preview{max-width:100%;max-height:250px;border-radius:10px;margin-top:14px;display:none}
+.btn{background:#1e40af;color:#fff;border:none;font-weight:600;cursor:pointer;margin-top:10px}
+.btn:disabled{background:#94a3b8}
+.btn-secondary{background:#64748b}
+.status{text-align:center;padding:12px;border-radius:10px;margin-top:14px;font-size:14px;display:none}
+.status.loading{background:#eff6ff;color:#1e40af;display:block}
+.status.error{background:#fef2f2;color:#b91c1c;display:block}
+.result-section{display:none}
+.result-section.show{display:block}
+#resultCanvas{width:100%;height:auto;border-radius:8px;display:block;background:#eee}
+textarea{min-height:110px;line-height:1.5;resize:vertical}
+.actions{display:flex;gap:10px;margin-top:12px}
+footer{text-align:center;margin-top:30px;color:#94a3b8;font-size:13px}
+</style>
 </head>
 <body>
-  <div class="container">
-    <header>
-      <h1>Kage Translate</h1>
-      <p>English ↔ O‘zbek rasm tarjimasi</p>
-    </header>
+<div class="container">
+  <header>
+    <h1>Kage Translate</h1>
+    <p>English ↔ O‘zbek rasm tarjimasi</p>
+  </header>
 
-    <div class="card">
-      <div class="row">
-        <div>
-          <label>Qaysi tildan</label>
-          <select id="sourceLang">
-            <option value="eng">English</option>
-            <option value="uzb">O‘zbek</option>
-          </select>
-        </div>
-        <div>
-          <label>Qaysi tilga</label>
-          <select id="targetLang">
-            <option value="uzb">O‘zbek</option>
-            <option value="eng">English</option>
-          </select>
-        </div>
+  <div class="card">
+    <div class="row">
+      <div>
+        <label>Qaysi tildan</label>
+        <select id="sourceLang"><option value="eng">English</option><option value="uzb">O‘zbek</option></select>
       </div>
-
-      <div class="upload-area" id="uploadArea">
-        <p>Rasmni bosing yoki tashlang</p>
-        <small>jpg, png, webp</small>
-        <input type="file" id="fileInput" accept="image/*" hidden>
-        <img id="preview" alt="Preview">
-      </div>
-
-      <button class="btn" id="translateBtn" disabled>Tarjima qilish</button>
-
-      <div class="status" id="status"></div>
-    </div>
-
-    <div class="card result-section" id="resultSection">
-      <label>Aniqlangan matn</label>
-      <textarea id="originalText" readonly></textarea>
-
-      <label style="margin-top:16px">Tarjima</label>
-      <textarea id="translatedText"></textarea>
-
-      <div class="actions">
-        <button class="btn btn-secondary" id="copyBtn">Nusxa olish</button>
-        <button class="btn" id="downloadBtn">Yuklab olish</button>
+      <div>
+        <label>Qaysi tilga</label>
+        <select id="targetLang"><option value="uzb">O‘zbek</option><option value="eng">English</option></select>
       </div>
     </div>
 
-    <footer>
-      Kage Translate • Faqat tekin
-    </footer>
+    <div class="upload-area" id="uploadArea">
+      <p>Rasmni bosib tanlang</p>
+      <small>jpg, png, webp</small>
+      <input type="file" id="fileInput" accept="image/*" hidden>
+      <img id="preview" alt="Preview">
+    </div>
+
+    <button class="btn" id="translateBtn" disabled>Tarjima qilish</button>
+    <div class="status" id="status"></div>
   </div>
 
-  <script>
-    const uploadArea = document.getElementById('uploadArea');
-    const fileInput = document.getElementById('fileInput');
-    const preview = document.getElementById('preview');
-    const translateBtn = document.getElementById('translateBtn');
-    const status = document.getElementById('status');
-    const resultSection = document.getElementById('resultSection');
-    const originalText = document.getElementById('originalText');
-    const translatedText = document.getElementById('translatedText');
-    const sourceLang = document.getElementById('sourceLang');
-    const targetLang = document.getElementById('targetLang');
+  <div class="card result-section" id="resultSection">
+    <label>Natija</label>
+    <canvas id="resultCanvas"></canvas>
 
-    let selectedFile = null;
+    <label style="margin-top:16px">Tarjima matnlari</label>
+    <textarea id="translatedText" readonly></textarea>
 
-    // Upload
-    uploadArea.addEventListener('click', () => fileInput.click());
-    uploadArea.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      uploadArea.classList.add('dragover');
-    });
-    uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
-    uploadArea.addEventListener('drop', (e) => {
-      e.preventDefault();
-      uploadArea.classList.remove('dragover');
-      if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
-    });
-    fileInput.addEventListener('change', (e) => {
-      if (e.target.files[0]) handleFile(e.target.files[0]);
+    <div class="actions">
+      <button class="btn btn-secondary" id="copyBtn">Nusxa olish</button>
+      <button class="btn" id="downloadBtn">Rasmni saqlash</button>
+    </div>
+  </div>
+
+  <footer>Kage Translate • Faqat tekin</footer>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const uploadArea=$('uploadArea'), fileInput=$('fileInput'), preview=$('preview'),
+      translateBtn=$('translateBtn'), statusEl=$('status'), resultSection=$('resultSection'),
+      translatedText=$('translatedText'), sourceLang=$('sourceLang'), targetLang=$('targetLang'),
+      canvas=$('resultCanvas');
+let selectedFile=null;
+const SLICE=1500;
+
+uploadArea.addEventListener('click',()=>fileInput.click());
+fileInput.addEventListener('change',e=>{ if(e.target.files[0]) handleFile(e.target.files[0]); });
+
+function handleFile(file){
+  if(!file.type.startsWith('image/')) return showStatus('Faqat rasm yuklash mumkin','error');
+  selectedFile=file;
+  preview.src=URL.createObjectURL(file);
+  preview.style.display='block';
+  translateBtn.disabled=false;
+  resultSection.classList.remove('show');
+  showStatus('','');
+}
+function showStatus(msg,type){ statusEl.textContent=msg; statusEl.className='status '+(type||''); }
+
+function loadImg(file){
+  return new Promise((res,rej)=>{
+    const img=new Image();
+    img.onload=()=>res(img);
+    img.onerror=()=>rej(new Error('Rasm ochilmadi'));
+    img.src=URL.createObjectURL(file);
+  });
+}
+
+async function translate(text,from,to){
+  let t=text.replace(/\s+/g,' ').trim();
+  if(t===t.toUpperCase()) t=t.toLowerCase().replace(/(^\s*|[.!?]\s+)(\p{L})/gu,(m,a,b)=>a+b.toUpperCase());
+  t=t.slice(0,450);
+  try{
+    const r=await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(t)}&langpair=${from}|${to}`);
+    const j=await r.json();
+    const res=j.responseData&&j.responseData.translatedText;
+    if(!res||/MYMEMORY WARNING|QUERY LENGTH/i.test(res)) return null;
+    return res;
+  }catch(e){ return null; }
+}
+
+function bgColor(ctx,x0,y0,x1,y1){
+  const pts=[[x0,y0],[x1,y0],[x0,y1],[x1,y1],[(x0+x1)/2,y0],[(x0+x1)/2,y1]];
+  let r=0,g=0,b=0;
+  for(const [x,y] of pts){
+    const cx=Math.max(0,Math.min(ctx.canvas.width-1,Math.round(x)));
+    const cy=Math.max(0,Math.min(ctx.canvas.height-1,Math.round(y)));
+    const d=ctx.getImageData(cx,cy,1,1).data; r+=d[0];g+=d[1];b+=d[2];
+  }
+  const n=pts.length; return [r/n,g/n,b/n].map(Math.round);
+}
+
+function drawFit(ctx,text,x,y,w,h,color){
+  const font=s=>`bold ${s}px "Comic Sans MS","Segoe UI",Arial,sans-serif`;
+  let size=Math.min(44,Math.floor(h)),lines=[];
+  for(;size>=9;size--){
+    ctx.font=font(size);
+    lines=[];let cur='',ok=true;
+    for(const wd of text.split(' ')){
+      if(ctx.measureText(wd).width>w){ok=false;break;}
+      const test=cur?cur+' '+wd:wd;
+      if(ctx.measureText(test).width<=w) cur=test; else {lines.push(cur);cur=wd;}
+    }
+    if(!ok) continue;
+    lines.push(cur);
+    if(lines.length*size*1.15<=h) break;
+  }
+  ctx.font=font(size);
+  ctx.fillStyle=color;ctx.textAlign='center';ctx.textBaseline='middle';
+  const lh=size*1.15,sy=y+h/2-(lines.length*lh)/2+lh/2;
+  lines.forEach((l,i)=>ctx.fillText(l,x+w/2,sy+i*lh));
+}
+
+translateBtn.addEventListener('click',async()=>{
+  if(!selectedFile) return;
+  translateBtn.disabled=true;
+  resultSection.classList.remove('show');
+  const from=sourceLang.value==='eng'?'en':'uz';
+  const to=targetLang.value==='eng'?'en':'uz';
+  let worker;
+  try{
+    showStatus('OCR tayyorlanmoqda (birinchi marta uzoq bo‘lishi mumkin)...','loading');
+    worker=await Tesseract.createWorker(sourceLang.value,1,{
+      logger:m=>{ if(m.status==='recognizing text') showStatus('Matn o‘qilmoqda: '+Math.round(m.progress*100)+'%','loading'); }
     });
 
-    function handleFile(file) {
-      if (!file.type.startsWith('image/')) {
-        showStatus('Faqat rasm yuklash mumkin', 'error');
-        return;
+    const img=await loadImg(selectedFile);
+    canvas.width=img.naturalWidth; canvas.height=img.naturalHeight;
+    const ctx=canvas.getContext('2d',{willReadFrequently:true});
+    ctx.drawImage(img,0,0);
+
+    const boxes=[];
+    for(let sy=0;sy<canvas.height;sy+=SLICE){
+      const sh=Math.min(SLICE,canvas.height-sy);
+      const part=document.createElement('canvas');
+      part.width=canvas.width;part.height=sh;
+      part.getContext('2d').drawImage(canvas,0,sy,canvas.width,sh,0,0,canvas.width,sh);
+      const {data}=await worker.recognize(part);
+      const paras=data.paragraphs||(data.blocks||[]).flatMap(b=>b.paragraphs||[]);
+      for(const p of paras){
+        const txt=(p.text||'').replace(/[^\p{L}\p{N}'’ʻ".,!?\-:; ]/gu,' ').replace(/\s+/g,' ').trim();
+        if(p.confidence<45||txt.length<3||!/\p{L}{2}/u.test(txt)) continue;
+        boxes.push({txt,x0:p.bbox.x0,y0:p.bbox.y0+sy,x1:p.bbox.x1,y1:p.bbox.y1+sy});
       }
-      selectedFile = file;
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        preview.src = e.target.result;
-        preview.style.display = 'block';
-        translateBtn.disabled = false;
-      };
-      reader.readAsDataURL(file);
     }
 
-    // Translate
-    translateBtn.addEventListener('click', async () => {
-      if (!selectedFile) return;
-
-      translateBtn.disabled = true;
-      showStatus('Matn aniqlanmoqda...', 'loading');
-      resultSection.classList.remove('show');
-
-      try {
-        // OCR
-        const worker = await Tesseract.createWorker(sourceLang.value === 'eng' ? 'eng' : 'uzb');
-        const { data: { text } } = await worker.recognize(selectedFile);
-        await worker.terminate();
-
-        originalText.value = text.trim() || 'Matn topilmadi';
-
-        if (!text.trim()) {
-          showStatus('Rasmdan matn topilmadi', 'error');
-          translateBtn.disabled = false;
-          return;
-        }
-
-        showStatus('Tarjima qilinmoqda...', 'loading');
-
-        // Translation (MyMemory free)
-        const from = sourceLang.value === 'eng' ? 'en' : 'uz';
-        const to = targetLang.value === 'eng' ? 'en' : 'uz';
-        const res = await fetch(`https://api.mymemory.translated.net/get?q=\( {encodeURIComponent(text)}&langpair= \){from}|${to}`);
-        const data = await res.json();
-
-        translatedText.value = data.responseData.translatedText || 'Tarjima olinmadi';
-
-        resultSection.classList.add('show');
-        showStatus('', '');
-      } catch (err) {
-        console.error(err);
-        showStatus('Xatolik yuz berdi. Qayta urinib ko‘ring.', 'error');
-      }
-
-      translateBtn.disabled = false;
-    });
-
-    function showStatus(msg, type) {
-      status.textContent = msg;
-      status.className = 'status ' + type;
+    if(!boxes.length){
+      showStatus('Rasmdan matn topilmadi','error');
+      translateBtn.disabled=false; await worker.terminate(); return;
     }
 
-    // Copy
-    document.getElementById('copyBtn').addEventListener('click', () => {
-      translatedText.select();
-      document.execCommand('copy');
-      alert('Nusxa olindi');
-    });
+    const all=[];
+    for(let i=0;i<boxes.length;i++){
+      showStatus(`Tarjima qilinmoqda: ${i+1}/${boxes.length}`,'loading');
+      const b=boxes[i];
+      const tr=await translate(b.txt,from,to);
+      if(!tr) continue;
+      all.push(tr);
+      const pad=6;
+      const x=Math.max(0,b.x0-pad),y=Math.max(0,b.y0-pad);
+      const w=Math.min(canvas.width-x,b.x1-b.x0+pad*2),h=Math.min(canvas.height-y,b.y1-b.y0+pad*2);
+      const [r,g,bl]=bgColor(ctx,x-2,y-2,x+w+2,y+h+2);
+      ctx.fillStyle=`rgb(${r},${g},${bl})`;
+      ctx.fillRect(x,y,w,h);
+      drawFit(ctx,tr,x,y,w,h,(0.299*r+0.587*g+0.114*bl)>128?'#000':'#fff');
+      await new Promise(r=>setTimeout(r,150));
+    }
+    await worker.terminate();
+    translatedText.value=all.join('\n\n');
+    resultSection.classList.add('show');
+    showStatus(all.length?'':'Tarjima olinmadi (limit tugagan bo‘lishi mumkin)',all.length?'':'error');
+    resultSection.scrollIntoView({behavior:'smooth'});
+  }catch(err){
+    console.error(err);
+    showStatus('Xatolik: '+err.message,'error');
+    if(worker) try{await worker.terminate();}catch(e){}
+  }
+  translateBtn.disabled=false;
+});
 
-    // Download as text
-    document.getElementById('downloadBtn').addEventListener('click', () => {
-      const blob = new Blob([translatedText.value], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'tarjima.txt';
-      a.click();
-      URL.revokeObjectURL(url);
-    });
+$('copyBtn').addEventListener('click',()=>{
+  translatedText.select();
+  document.execCommand('copy');
+  alert('Nusxa olindi');
+});
 
-    // Auto switch languages
-    sourceLang.addEventListener('change', () => {
-      targetLang.value = sourceLang.value === 'eng' ? 'uzb' : 'eng';
-    });
-  </script>
+$('downloadBtn').addEventListener('click',()=>{
+  canvas.toBlob(bl=>{
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(bl);
+    a.download='tarjima.png';
+    a.click();
+  });
+});
+
+sourceLang.addEventListener('change',()=>{
+  targetLang.value=sourceLang.value==='eng'?'uzb':'eng';
+});
+</script>
 </body>
 </html>
