@@ -78,7 +78,7 @@ footer{text-align:center;margin-top:30px;color:#94a3b8;font-size:13px}
     </div>
   </div>
 
-  <footer>Kage Translate • Faqat tekin • v8</footer>
+  <footer>Kage Translate • Faqat tekin • v9</footer>
 </div>
 
 <script>
@@ -289,9 +289,16 @@ translateBtn.addEventListener('click',async()=>{
       const c2x=c2.getContext('2d');c2x.imageSmoothingQuality='high';
       c2x.drawImage(c1,0,0,c2.width,c2.height);
 
-      const {data}=await worker.recognize(c2);
+      let {data}=await worker.recognize(c2);
+      if(data.confidence<55){
+        // qisqa matnlar uchun boshqa rejim bilan qayta urinish
+        await worker.setParameters({tessedit_pageseg_mode:'11'});
+        const r2=await worker.recognize(c2);
+        await worker.setParameters({tessedit_pageseg_mode:'6'});
+        if(r2.data.confidence>data.confidence) data=r2.data;
+      }
       const txt=(data.text||'').replace(/[^\p{L}\p{N}'’ʻ".,!?\-:; \n]/gu,' ').replace(/\s+/g,' ').trim();
-      if(data.confidence<50||txt.replace(/[^\p{L}]/gu,'').length<2) continue;
+      if(data.confidence<35||txt.replace(/[^\p{L}]/gu,'').length<2) continue;
 
       const tr=await translate(txt,from,to);
       if(!tr){failed++;continue;}
@@ -330,7 +337,7 @@ translateBtn.addEventListener('click',async()=>{
     translatedText.value=all.join('\n\n');
     resultSection.classList.add('show');
     if(!done) showStatus('Tarjima qilingan pufakcha topilmadi'+(failed?' (tarjima limiti tugagan bo‘lishi mumkin)':''),'error');
-    else showStatus(failed?`${done} ta pufakcha tarjima qilindi, ${failed} tasi qilinmadi (limit)`:'', failed?'error':'');
+    else showStatus(`${done}/${list.length} ta pufakcha tarjima qilindi`+(failed?`, ${failed} tasi tarjimon xatosi sababli qilinmadi`:''),'loading');
     resultSection.scrollIntoView({behavior:'smooth'});
   }catch(err){
     console.error(err);
