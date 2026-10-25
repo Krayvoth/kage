@@ -78,7 +78,7 @@ footer{text-align:center;margin-top:30px;color:#94a3b8;font-size:13px}
     </div>
   </div>
 
-  <footer>Kage Translate • Faqat tekin • v6</footer>
+  <footer>Kage Translate • Faqat tekin • v7</footer>
 </div>
 
 <script>
@@ -235,19 +235,21 @@ translateBtn.addEventListener('click',async()=>{
       await worker.terminate();translateBtn.disabled=false;return;
     }
 
+    const list=bubbles.filter((b,i)=>!bubbles.some((a,j)=>j!==i&&a.bw*a.bh>b.bw*b.bh&&a.x0<=b.x0&&a.y0<=b.y0&&a.x0+a.bw>=b.x0+b.bw&&a.y0+a.bh>=b.y0+b.bh));
     const all=[];let done=0,failed=0;
-    for(let n=0;n<bubbles.length;n++){
-      showStatus(`Pufakcha ${n+1}/${bubbles.length}...`,'loading');
-      const b=bubbles[n];
+    for(let n=0;n<list.length;n++){
+      showStatus(`Pufakcha ${n+1}/${list.length}...`,'loading');
+      const b=list[n];
       const {comp,out}=interiorMask(white,W,b);
       const id=ctx.getImageData(b.x0,b.y0,b.bw,b.bh);
       const px=id.data;
 
       // Matn teshiklari chegarasi + OCR uchun toza nusxa
-      let tx0=b.bw,ty0=b.bh,tx1=0,ty1=0,holes=0;
+      let tx0=b.bw,ty0=b.bh,tx1=0,ty1=0,holes=0,inter=0;
       const cropData=new ImageData(new Uint8ClampedArray(px),b.bw,b.bh);
       for(let i=0;i<b.bw*b.bh;i++){
         const p=i*4;
+        if(!out[i]) inter++;
         if(out[i]){cropData.data[p]=cropData.data[p+1]=cropData.data[p+2]=255;}
         else if(!comp[i]){
           const x=i%b.bw,y=(i-x)/b.bw;
@@ -255,7 +257,7 @@ translateBtn.addEventListener('click',async()=>{
           if(x<tx0)tx0=x;if(x>tx1)tx1=x;if(y<ty0)ty0=y;if(y>ty1)ty1=y;
         }
       }
-      if(holes<40) continue; // bo'sh pufakcha
+      if(holes<40||holes/(inter||1)>0.4) continue; // bo'sh yoki oq bo'lmagan joy
 
       const c1=document.createElement('canvas');c1.width=b.bw;c1.height=b.bh;
       c1.getContext('2d').putImageData(cropData,0,0);
@@ -266,7 +268,7 @@ translateBtn.addEventListener('click',async()=>{
 
       const {data}=await worker.recognize(c2);
       const txt=(data.text||'').replace(/[^\p{L}\p{N}'’ʻ".,!?\-:; \n]/gu,' ').replace(/\s+/g,' ').trim();
-      if(data.confidence<35||txt.replace(/[^\p{L}]/gu,'').length<2) continue;
+      if(data.confidence<50||txt.replace(/[^\p{L}]/gu,'').length<2) continue;
 
       const tr=await translate(txt,from,to);
       if(!tr){failed++;continue;}
