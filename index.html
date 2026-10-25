@@ -93,24 +93,34 @@ const SLICE=1500;
 uploadArea.addEventListener('click',()=>fileInput.click());
 fileInput.addEventListener('change',e=>{ if(e.target.files[0]) handleFile(e.target.files[0]); });
 
-function handleFile(file){
+let selectedUrl=null;
+async function handleFile(file){
   if(!file.type.startsWith('image/')) return showStatus('Faqat rasm yuklash mumkin','error');
-  selectedFile=file;
-  preview.src=URL.createObjectURL(file);
-  preview.style.display='block';
-  translateBtn.disabled=false;
-  resultSection.classList.remove('show');
-  showStatus('','');
+  try{
+    // Faylni darrov xotiraga nusxalaymiz (Android'da keyin o'qib bo'lmay qolishi mumkin)
+    const buf=await file.arrayBuffer();
+    const blob=new Blob([buf],{type:file.type});
+    if(selectedUrl) URL.revokeObjectURL(selectedUrl);
+    selectedUrl=URL.createObjectURL(blob);
+    selectedFile=blob;
+    preview.src=selectedUrl;
+    preview.style.display='block';
+    translateBtn.disabled=false;
+    resultSection.classList.remove('show');
+    showStatus('','');
+  }catch(e){
+    showStatus('Faylni o‘qib bo‘lmadi. Rasmni qayta tanlang.','error');
+  }
 }
 
 function showStatus(msg,type){ statusEl.textContent=msg; statusEl.className='status '+(type||''); }
 
-function loadImg(file){
+function loadImg(url){
   return new Promise((res,rej)=>{
     const img=new Image();
     img.onload=()=>res(img);
-    img.onerror=()=>rej(new Error('Rasm ochilmadi'));
-    img.src=URL.createObjectURL(file);
+    img.onerror=()=>rej(new Error('Rasm ochilmadi. Rasmni qayta tanlang.'));
+    img.src=url;
   });
 }
 
@@ -172,13 +182,16 @@ translateBtn.addEventListener('click',async()=>{
       logger:m=>{ if(m.status==='recognizing text') showStatus('Matn o‘qilmoqda: '+Math.round(m.progress*100)+'%','loading'); }
     });
 
-    const img=await loadImg(selectedFile);
+    const img=await loadImg(selectedUrl);
     canvas.width=img.naturalWidth; canvas.height=img.naturalHeight;
     const ctx=canvas.getContext('2d',{willReadFrequently:true});
     ctx.drawImage(img,0,0);
 
     const boxes=[];
     for(let sy=0;sy<canvas.height;sy+=SLICE){
+      const sh=Math.min(SLICE,canvas.height-sy);
+      const part=document.createElement('canvas');
+      part.width=canvas.width;part.height=sh;
       part.getContext('2d').drawImage(canvas,0,sy,canvas.width,sh,0,0,canvas.width,sh);
       const {data}=await worker.recognize(part);
       const paras=data.paragraphs||(data.blocks||[]).flatMap(b=>b.paragraphs||[]);
