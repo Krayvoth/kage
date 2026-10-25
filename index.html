@@ -78,7 +78,7 @@ footer{text-align:center;margin-top:30px;color:#94a3b8;font-size:13px}
     </div>
   </div>
 
-  <footer>Kage Translate • Faqat tekin • v7</footer>
+  <footer>Kage Translate • Faqat tekin • v8</footer>
 </div>
 
 <script>
@@ -122,6 +122,12 @@ async function translate(text,from,to){
   let t=text.replace(/\s+/g,' ').trim();
   if(t===t.toUpperCase()) t=t.toLowerCase().replace(/(^\s*|[.!?]\s+)(\p{L})/gu,(m,a,b)=>a+b.toUpperCase());
   t=t.slice(0,450);
+  try{
+    const r=await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(t)}`);
+    const j=await r.json();
+    const g=(j[0]||[]).map(x=>x[0]).join('');
+    if(g) return g;
+  }catch(e){}
   for(let k=0;k<3;k++){
     try{
       const r=await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(t)}&langpair=${from}|${to}`);
@@ -160,7 +166,6 @@ function findBubbles(ctx,W,H){
   }
   return {res,white};
 }
-
 // ---- 2) Pufakcha ichki maskasi (matn teshiklari ham ichida) ----
 function interiorMask(white,W,b){
   const {x0,y0,bw,bh,s}=b,N=bw*bh;
@@ -209,6 +214,24 @@ function drawFit(ctx,text,x,y,w,h,color,maxS){
   lines.forEach((l,i)=>ctx.fillText(l,x+w/2,sy+i*lh));
 }
 
+function layoutText(ctx,text,w,h,maxS){
+  const font=s=>`bold ${s}px "Comic Sans MS","Segoe UI",Arial,sans-serif`;
+  let size=Math.min(maxS||44,Math.floor(h)),lines=[];
+  for(;size>=9;size--){
+    ctx.font=font(size);
+    lines=[];let cur='',ok=true;
+    for(const wd of text.split(' ')){
+      if(ctx.measureText(wd).width>w){ok=false;break;}
+      const test=cur?cur+' '+wd:wd;
+      if(ctx.measureText(test).width<=w)cur=test;else{lines.push(cur);cur=wd;}
+    }
+    if(!ok)continue;
+    lines.push(cur);
+    if(lines.length*size*1.15<=h)break;
+  }
+  return {size,lines,font:font(size)};
+}
+
 translateBtn.addEventListener('click',async()=>{
   if(!selectedUrl) return;
   translateBtn.disabled=true;
@@ -219,7 +242,7 @@ translateBtn.addEventListener('click',async()=>{
   try{
     showStatus('OCR tayyorlanmoqda (birinchi marta uzoq bo‘lishi mumkin)...','loading');
     worker=await Tesseract.createWorker(sourceLang.value,1);
-    await worker.setParameters({tessedit_pageseg_mode:'6'});
+    await worker.setParameters(Object.assign({tessedit_pageseg_mode:'6'},sourceLang.value==='eng'?{tessedit_char_whitelist:"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'’\".,!?-:;… "}:{}));
 
     const img=(preview.complete&&preview.naturalWidth>0)?preview:await loadImg(selectedUrl);
     const W=img.naturalWidth,H=img.naturalHeight;
@@ -236,7 +259,7 @@ translateBtn.addEventListener('click',async()=>{
     }
 
     const list=bubbles.filter((b,i)=>!bubbles.some((a,j)=>j!==i&&a.bw*a.bh>b.bw*b.bh&&a.x0<=b.x0&&a.y0<=b.y0&&a.x0+a.bw>=b.x0+b.bw&&a.y0+a.bh>=b.y0+b.bh));
-    const all=[];let done=0,failed=0;
+    const all=[],jobs=[];let done=0,failed=0;
     for(let n=0;n<list.length;n++){
       showStatus(`Pufakcha ${n+1}/${list.length}...`,'loading');
       const b=list[n];
@@ -283,13 +306,25 @@ translateBtn.addEventListener('click',async()=>{
       // Matn joyi: eski matn markazida
       const hw=tx1-tx0+1,hh=ty1-ty0+1;
       const cx=tx0+hw/2,cy=ty0+hh/2;
-      let rw=Math.min(b.bw*0.92,Math.max(hw*1.15,b.bw*0.62));
-      let rh=Math.min(b.bh*0.92,Math.max(hh*1.15,b.bh*0.5));
+      const rectLike=inter/(b.bw*b.bh)>0.88;
+      const fw=rectLike?0.92:0.70,fh=rectLike?0.92:0.66;
+      let rw=Math.min(b.bw*fw,Math.max(hw*1.1,b.bw*0.5));
+      let rh=Math.min(b.bh*fh,Math.max(hh*1.1,b.bh*0.45));
       let rx=Math.max(b.bw*0.04,Math.min(b.bw-rw-b.bw*0.04,cx-rw/2));
       let ry=Math.max(b.bh*0.04,Math.min(b.bh-rh-b.bh*0.04,cy-rh/2));
-      drawFit(ctx,tr.toUpperCase(),b.x0+rx,b.y0+ry,rw,rh,'#000',Math.round(Math.min(W/16,hh/2)));
+      jobs.push({t:tr.toUpperCase(),x:b.x0+rx,y:b.y0+ry,w:rw,h:rh,m:Math.round(Math.min(W/16,hh/2))});
       done++;
       await sleep(150);
+    }
+    if(jobs.length){
+      const sz=jobs.map(j=>layoutText(ctx,j.t,j.w,j.h,j.m).size).sort((a,b)=>a-b);
+      const cap=Math.round(sz[sz.length>>1]*1.15);
+      for(const j of jobs){
+        const L=layoutText(ctx,j.t,j.w,j.h,Math.min(j.m,cap));
+        ctx.font=L.font;ctx.fillStyle='#000';ctx.textAlign='center';ctx.textBaseline='middle';
+        const lh=L.size*1.15,sy=j.y+j.h/2-(L.lines.length*lh)/2+lh/2;
+        L.lines.forEach((l,i)=>ctx.fillText(l,j.x+j.w/2,sy+i*lh));
+      }
     }
     await worker.terminate();
     translatedText.value=all.join('\n\n');
