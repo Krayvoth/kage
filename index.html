@@ -141,4 +141,228 @@
     .btn-secondary:hover {
       background: #475569;
     }
+.status {
+      text-align: center;
+      padding: 12px;
+      border-radius: 10px;
+      margin: 16px 0;
+      font-size: 14px;
+      display: none;
+    }
 
+    .status.loading {
+      background: #eff6ff;
+      color: #1e40af;
+      display: block;
+    }
+
+    .status.error {
+      background: #fef2f2;
+      color: #b91c1c;
+      display: block;
+    }
+
+    .result-section {
+      display: none;
+    }
+
+    .result-section.show {
+      display: block;
+    }
+
+    textarea {
+      min-height: 120px;
+      resize: vertical;
+      line-height: 1.5;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .actions button {
+      flex: 1;
+    }
+
+    footer {
+      text-align: center;
+      margin-top: 40px;
+      color: #94a3b8;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Kage Translate</h1>
+      <p>English ↔ O‘zbek rasm tarjimasi</p>
+    </header>
+
+    <div class="card">
+      <div class="row">
+        <div>
+          <label>Qaysi tildan</label>
+          <select id="sourceLang">
+            <option value="eng">English</option>
+            <option value="uzb">O‘zbek</option>
+          </select>
+        </div>
+        <div>
+          <label>Qaysi tilga</label>
+          <select id="targetLang">
+            <option value="uzb">O‘zbek</option>
+            <option value="eng">English</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="upload-area" id="uploadArea">
+        <p>Rasmni bosing yoki tashlang</p>
+        <small>jpg, png, webp</small>
+        <input type="file" id="fileInput" accept="image/*" hidden>
+        <img id="preview" alt="Preview">
+      </div>
+
+      <button class="btn" id="translateBtn" disabled>Tarjima qilish</button>
+
+      <div class="status" id="status"></div>
+    </div>
+
+    <div class="card result-section" id="resultSection">
+      <label>Aniqlangan matn</label>
+      <textarea id="originalText" readonly></textarea>
+
+      <label style="margin-top:16px">Tarjima</label>
+      <textarea id="translatedText"></textarea>
+
+      <div class="actions">
+        <button class="btn btn-secondary" id="copyBtn">Nusxa olish</button>
+        <button class="btn" id="downloadBtn">Yuklab olish</button>
+      </div>
+    </div>
+
+    <footer>
+      Kage Translate • Faqat tekin
+    </footer>
+  </div>
+
+  <script>
+    const uploadArea = document.getElementById('uploadArea');
+    const fileInput = document.getElementById('fileInput');
+    const preview = document.getElementById('preview');
+    const translateBtn = document.getElementById('translateBtn');
+    const status = document.getElementById('status');
+    const resultSection = document.getElementById('resultSection');
+    const originalText = document.getElementById('originalText');
+    const translatedText = document.getElementById('translatedText');
+    const sourceLang = document.getElementById('sourceLang');
+    const targetLang = document.getElementById('targetLang');
+
+    let selectedFile = null;
+
+    // Upload
+    uploadArea.addEventListener('click', () => fileInput.click());
+    uploadArea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      uploadArea.classList.add('dragover');
+    });
+    uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
+    uploadArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadArea.classList.remove('dragover');
+      if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files[0]) handleFile(e.target.files[0]);
+    });
+
+    function handleFile(file) {
+      if (!file.type.startsWith('image/')) {
+        showStatus('Faqat rasm yuklash mumkin', 'error');
+        return;
+      }
+      selectedFile = file;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        preview.src = e.target.result;
+        preview.style.display = 'block';
+        translateBtn.disabled = false;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // Translate
+    translateBtn.addEventListener('click', async () => {
+      if (!selectedFile) return;
+
+      translateBtn.disabled = true;
+      showStatus('Matn aniqlanmoqda...', 'loading');
+      resultSection.classList.remove('show');
+
+      try {
+        // OCR
+        const worker = await Tesseract.createWorker(sourceLang.value === 'eng' ? 'eng' : 'uzb');
+        const { data: { text } } = await worker.recognize(selectedFile);
+        await worker.terminate();
+
+        originalText.value = text.trim() || 'Matn topilmadi';
+
+        if (!text.trim()) {
+          showStatus('Rasmdan matn topilmadi', 'error');
+          translateBtn.disabled = false;
+          return;
+        }
+
+        showStatus('Tarjima qilinmoqda...', 'loading');
+
+        // Translation (MyMemory free)
+        const from = sourceLang.value === 'eng' ? 'en' : 'uz';
+        const to = targetLang.value === 'eng' ? 'en' : 'uz';
+        const res = await fetch(`https://api.mymemory.translated.net/get?q=\( {encodeURIComponent(text)}&langpair= \){from}|${to}`);
+        const data = await res.json();
+
+        translatedText.value = data.responseData.translatedText || 'Tarjima olinmadi';
+
+        resultSection.classList.add('show');
+        showStatus('', '');
+      } catch (err) {
+        console.error(err);
+        showStatus('Xatolik yuz berdi. Qayta urinib ko‘ring.', 'error');
+      }
+
+      translateBtn.disabled = false;
+    });
+
+    function showStatus(msg, type) {
+      status.textContent = msg;
+      status.className = 'status ' + type;
+    }
+
+    // Copy
+    document.getElementById('copyBtn').addEventListener('click', () => {
+      translatedText.select();
+      document.execCommand('copy');
+      alert('Nusxa olindi');
+    });
+
+    // Download as text
+    document.getElementById('downloadBtn').addEventListener('click', () => {
+      const blob = new Blob([translatedText.value], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'tarjima.txt';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    // Auto switch languages
+    sourceLang.addEventListener('change', () => {
+      targetLang.value = sourceLang.value === 'eng' ? 'uzb' : 'eng';
+    });
+  </script>
+</body>
+</html>
