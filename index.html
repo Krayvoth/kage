@@ -78,7 +78,7 @@ footer{text-align:center;margin-top:30px;color:#94a3b8;font-size:13px}
     </div>
   </div>
 
-  <footer>Kage Translate • Faqat tekin</footer>
+  <footer>Kage Translate • Faqat tekin • v4</footer>
 </div>
 
 <script>
@@ -182,7 +182,7 @@ translateBtn.addEventListener('click',async()=>{
       logger:m=>{ if(m.status==='recognizing text') showStatus('Matn o‘qilmoqda: '+Math.round(m.progress*100)+'%','loading'); }
     });
 
-    const img=await loadImg(selectedUrl);
+    const img=(preview.complete&&preview.naturalWidth>0)?preview:await loadImg(selectedUrl);
     canvas.width=img.naturalWidth; canvas.height=img.naturalHeight;
     const ctx=canvas.getContext('2d',{willReadFrequently:true});
     ctx.drawImage(img,0,0);
