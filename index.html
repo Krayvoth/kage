@@ -78,7 +78,7 @@ footer{text-align:center;margin-top:30px;color:#94a3b8;font-size:13px}
     </div>
   </div>
 
-  <footer>Kage Translate • Faqat tekin • v11</footer>
+  <footer>Kage Translate • Faqat tekin • v12</footer>
 </div>
 
 <script>
@@ -120,7 +120,8 @@ function decodeEnt(s){const t=document.createElement('textarea');t.innerHTML=s;r
 
 async function translate(text,from,to){
   let t=text.replace(/\s+/g,' ').trim();
-  if(t===t.toUpperCase()) t=t.toLowerCase().replace(/(^\s*|[.!?]\s+)(\p{L})/gu,(m,a,b)=>a+b.toUpperCase());
+  {const lt=t.replace(/[^\p{L}]/gu,''),up=lt.replace(/[^\p{Lu}]/gu,'');
+    if(lt.length&&up.length/lt.length>=0.7) t=t.toLowerCase().replace(/(^\s*|[.!?]\s+)(\p{L})/gu,(m,a,b)=>a+b.toUpperCase());}
   t=t.slice(0,450);
   try{
     const r=await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(t)}`);
@@ -166,21 +167,6 @@ function findBubbles(ctx,W,H){
       if(y<H-1&&near(i,i+W)){lab[i+W]=id;stack[sp++]=i+W;}
     }
     const bw=x1-x0+1,bh=y1-y0+1;
-    if(area<2500||bw<50||bh<35) continue;
-    if(bw>W*0.98&&bh>H*0.5) continue;
-    if(area/(bw*bh)<0.4||area>0.5*W*H) continue;
-    res.push({id,s,x0,y0,bw,bh});
-  }
-  return {res,white:lab};
-}
-
-// ---- 2) Ichki maska (matn teshiklari ham ichida) ----
-function interiorMask(lab,W,b){
-  const {x0,y0,bw,bh,id}=b,N=bw*bh;
-  const comp=new Uint8Array(N),out=new Uint8Array(N),st=new Int32Array(N);
-  for(let y=0;y<bh;y++){const row=(y0+y)*W+x0;for(let x=0;x<bw;x++) if(lab[row+x]===id) comp[y*bw+x]=1;}
-  let sp=0;
-  const push=j=>{if(!comp[j]&&!out[j]){out[j]=1;st[sp++]=j;}};
   for(let x=0;x<bw;x++){push(x);push((bh-1)*bw+x);}
   for(let y=0;y<bh;y++){push(y*bw);push(y*bw+bw-1);}
   while(sp){
@@ -228,7 +214,6 @@ function layoutText(ctx,text,w,h,maxS){
   }
   return {size,lines,font:font(size)};
 }
-
 translateBtn.addEventListener('click',async()=>{
   if(!selectedUrl) return;
   translateBtn.disabled=true;
@@ -246,7 +231,8 @@ translateBtn.addEventListener('click',async()=>{
     canvas.width=W;canvas.height=H;
     const ctx=canvas.getContext('2d',{willReadFrequently:true});
     ctx.drawImage(img,0,0);
-showStatus('Pufakchalar qidirilmoqda...','loading');
+
+    showStatus('Pufakchalar qidirilmoqda...','loading');
     await sleep(50);
     const {res:bubbles,white}=findBubbles(ctx,W,H);
     if(!bubbles.length){
@@ -254,7 +240,7 @@ showStatus('Pufakchalar qidirilmoqda...','loading');
       await worker.terminate();translateBtn.disabled=false;return;
     }
 
-    const list=bubbles.filter((b,i)=>!bubbles.some((a,j)=>j!==i&&a.bw*a.bh>b.bw*b.bh&&a.x0<=b.x0&&a.y0<=b.y0&&a.x0+a.bw>=b.x0+b.bw&&a.y0+a.bh>=b.y0+b.bh));
+    const list=bubbles.filter((a,i)=>!bubbles.some((c,j)=>j!==i&&c.bw*c.bh<a.bw*a.bh&&c.x0>=a.x0&&c.y0>=a.y0&&c.x0+c.bw<=a.x0+a.bw&&c.y0+c.bh<=a.y0+a.bh));
     const all=[],jobs=[],skipped=[];let done=0,failed=0;
     for(let n=0;n<list.length;n++){
       showStatus(`Pufakcha ${n+1}/${list.length}...`,'loading');
@@ -277,11 +263,12 @@ showStatus('Pufakchalar qidirilmoqda...','loading');
         }
       }
       if(holes<40||holes/(inter||1)>0.4) continue; // bo'sh yoki matnsiz joy
+      let fillL=255;
       { // fon bir xil rangda bo'lishi kerak (rasm qismi emas)
         let n=0,sm=0,sq=0;
         for(let i=0;i<b.bw*b.bh;i+=5){ if(comp[i]){const p=i*4,l=(px[p]*299+px[p+1]*587+px[p+2]*114)/1000;n++;sm+=l;sq+=l*l;} }
         if(n<50) continue;
-        const mean=sm/n; if(Math.sqrt(Math.max(0,sq/n-mean*mean))>28) continue;
+        const mean=sm/n; fillL=mean; if(Math.sqrt(Math.max(0,sq/n-mean*mean))>28) continue;
       }
 
       const c1=document.createElement('canvas');c1.width=b.bw;c1.height=b.bh;
@@ -301,7 +288,9 @@ showStatus('Pufakchalar qidirilmoqda...','loading');
       }
       const txt=(data.text||'').replace(/[^\p{L}\p{N}'’ʻ".,!?\-:; \n]/gu,' ').replace(/\s+/g,' ').trim();
       const lettersN=txt.replace(/[^\p{L}]/gu,'').length,alnumN=txt.replace(/[^\p{L}\p{N}]/gu,'').length||1;
-      if(data.confidence<20||lettersN<2||lettersN/alnumN<0.8){ skipped.push(Math.round(data.confidence)+'%:'+txt.slice(0,20)); continue; }
+      const toks=txt.split(' ').filter(Boolean);
+      const vowelOk=toks.filter(w=>w.length<=2||/[aeiouyAEIOUY]/.test(w)).length/(toks.length||1);
+      if(data.confidence<(fillL<235?50:20)||lettersN<2||lettersN/alnumN<0.8||vowelOk<0.6){ skipped.push(Math.round(data.confidence)+'%:'+txt.slice(0,20)); continue; }
 
       let tr=await translate(txt,from,to);
       if(!tr){failed++;continue;}
