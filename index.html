@@ -102,6 +102,7 @@ function handleFile(file){
   resultSection.classList.remove('show');
   showStatus('','');
 }
+
 function showStatus(msg,type){ statusEl.textContent=msg; statusEl.className='status '+(type||''); }
 
 function loadImg(file){
@@ -178,9 +179,6 @@ translateBtn.addEventListener('click',async()=>{
 
     const boxes=[];
     for(let sy=0;sy<canvas.height;sy+=SLICE){
-      const sh=Math.min(SLICE,canvas.height-sy);
-      const part=document.createElement('canvas');
-      part.width=canvas.width;part.height=sh;
       part.getContext('2d').drawImage(canvas,0,sy,canvas.width,sh,0,0,canvas.width,sh);
       const {data}=await worker.recognize(part);
       const paras=data.paragraphs||(data.blocks||[]).flatMap(b=>b.paragraphs||[]);
