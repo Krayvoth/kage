@@ -78,43 +78,35 @@ footer{text-align:center;margin-top:30px;color:#94a3b8;font-size:13px}
     </div>
   </div>
 
-  <footer>Kage Translate • Faqat tekin • v5</footer>
+  <footer>Kage Translate • Faqat tekin • v6</footer>
 </div>
 
 <script>
-const $ = id => document.getElementById(id);
-const uploadArea=$('uploadArea'), fileInput=$('fileInput'), preview=$('preview'),
-      translateBtn=$('translateBtn'), statusEl=$('status'), resultSection=$('resultSection'),
-      translatedText=$('translatedText'), sourceLang=$('sourceLang'), targetLang=$('targetLang'),
+const $=id=>document.getElementById(id);
+const uploadArea=$('uploadArea'),fileInput=$('fileInput'),preview=$('preview'),
+      translateBtn=$('translateBtn'),statusEl=$('status'),resultSection=$('resultSection'),
+      translatedText=$('translatedText'),sourceLang=$('sourceLang'),targetLang=$('targetLang'),
       canvas=$('resultCanvas');
-let selectedFile=null;
-const SLICE=1500;
+let selectedUrl=null;
 
 uploadArea.addEventListener('click',()=>fileInput.click());
-fileInput.addEventListener('change',e=>{ if(e.target.files[0]) handleFile(e.target.files[0]); });
+fileInput.addEventListener('change',e=>{if(e.target.files[0])handleFile(e.target.files[0]);});
 
-let selectedUrl=null;
 async function handleFile(file){
   if(!file.type.startsWith('image/')) return showStatus('Faqat rasm yuklash mumkin','error');
   try{
-    // Faylni darrov xotiraga nusxalaymiz (Android'da keyin o'qib bo'lmay qolishi mumkin)
     const buf=await file.arrayBuffer();
     const blob=new Blob([buf],{type:file.type});
     if(selectedUrl) URL.revokeObjectURL(selectedUrl);
     selectedUrl=URL.createObjectURL(blob);
-    selectedFile=blob;
     preview.src=selectedUrl;
     preview.style.display='block';
     translateBtn.disabled=false;
     resultSection.classList.remove('show');
     showStatus('','');
-  }catch(e){
-    showStatus('Faylni o‘qib bo‘lmadi. Rasmni qayta tanlang.','error');
-  }
+  }catch(e){ showStatus('Faylni o‘qib bo‘lmadi. Rasmni qayta tanlang.','error'); }
 }
-
-function showStatus(msg,type){ statusEl.textContent=msg; statusEl.className='status '+(type||''); }
-
+function showStatus(msg,type){statusEl.textContent=msg;statusEl.className='status '+(type||'');}
 function loadImg(url){
   return new Promise((res,rej)=>{
     const img=new Image();
@@ -123,28 +115,77 @@ function loadImg(url){
     img.src=url;
   });
 }
-
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 function decodeEnt(s){const t=document.createElement('textarea');t.innerHTML=s;return t.value;}
+
 async function translate(text,from,to){
   let t=text.replace(/\s+/g,' ').trim();
   if(t===t.toUpperCase()) t=t.toLowerCase().replace(/(^\s*|[.!?]\s+)(\p{L})/gu,(m,a,b)=>a+b.toUpperCase());
   t=t.slice(0,450);
-  try{
-    const r=await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(t)}&langpair=${from}|${to}`);
-    const j=await r.json();
-    const res=j.responseData&&j.responseData.translatedText;
-    if(!res||/MYMEMORY WARNING|QUERY LENGTH/i.test(res)) return null;
-    return decodeEnt(res);
-  }catch(e){ return null; }
+  for(let k=0;k<3;k++){
+    try{
+      const r=await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(t)}&langpair=${from}|${to}`);
+      const j=await r.json();
+      const res=j.responseData&&j.responseData.translatedText;
+      if(res&&!/MYMEMORY WARNING|QUERY LENGTH/i.test(res)) return decodeEnt(res);
+    }catch(e){}
+    await sleep(700);
+  }
+  return null;
 }
 
-function bgColor(ctx,x0,y0,x1,y1){
-  const W=ctx.canvas.width,H=ctx.canvas.height,R=[],G=[],B=[];
-  const cl=(v,m)=>Math.max(0,Math.min(m-1,Math.round(v)));
-  const add=(x,y)=>{const d=ctx.getImageData(cl(x,W),cl(y,H),1,1).data;R.push(d[0]);G.push(d[1]);B.push(d[2]);};
-  for(let i=0;i<=8;i++){const t=i/8;add(x0+(x1-x0)*t,y0);add(x0+(x1-x0)*t,y1);add(x0,y0+(y1-y0)*t);add(x1,y0+(y1-y0)*t);}
-  const med=a=>a.sort((p,q)=>p-q)[a.length>>1];
-  return [med(R),med(G),med(B)];
+// ---- 1) Oq pufakchalarni topish ----
+function findBubbles(ctx,W,H){
+  const d=ctx.getImageData(0,0,W,H).data;
+  const white=new Uint8Array(W*H);
+  for(let i=0,p=0;i<W*H;i++,p+=4){ if(d[p]>=215&&d[p+1]>=215&&d[p+2]>=215) white[i]=1; }
+  const seen=new Uint8Array(W*H),stack=new Int32Array(W*H),res=[];
+  for(let s=0;s<W*H;s++){
+    if(!white[s]||seen[s]) continue;
+    let sp=0;stack[sp++]=s;seen[s]=1;
+    let x0=W,y0=H,x1=0,y1=0,area=0;
+    while(sp){
+      const i=stack[--sp],x=i%W,y=(i-x)/W;area++;
+      if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y;
+      if(x>0&&white[i-1]&&!seen[i-1]){seen[i-1]=1;stack[sp++]=i-1;}
+      if(x<W-1&&white[i+1]&&!seen[i+1]){seen[i+1]=1;stack[sp++]=i+1;}
+      if(y>0&&white[i-W]&&!seen[i-W]){seen[i-W]=1;stack[sp++]=i-W;}
+      if(y<H-1&&white[i+W]&&!seen[i+W]){seen[i+W]=1;stack[sp++]=i+W;}
+    }
+    const bw=x1-x0+1,bh=y1-y0+1;
+    if(area<2500||bw<50||bh<35) continue;
+    if(bw>W*0.98&&bh>H*0.5) continue;
+    if(area/(bw*bh)<0.4) continue;
+    res.push({s,x0,y0,bw,bh});
+  }
+  return {res,white};
+}
+
+// ---- 2) Pufakcha ichki maskasi (matn teshiklari ham ichida) ----
+function interiorMask(white,W,b){
+  const {x0,y0,bw,bh,s}=b,N=bw*bh;
+  const comp=new Uint8Array(N),out=new Uint8Array(N),st=new Int32Array(N);
+  let sp=0;
+  const sl=(Math.floor(s/W)-y0)*bw+((s%W)-x0);
+  st[sp++]=sl;comp[sl]=1;
+  while(sp){
+    const i=st[--sp],x=i%bw,y=(i-x)/bw;
+    const nb=[[x-1,y],[x+1,y],[x,y-1],[x,y+1]];
+    for(const [nx,ny] of nb){
+      if(nx<0||ny<0||nx>=bw||ny>=bh) continue;
+      const j=ny*bw+nx;
+      if(!comp[j]&&white[(y0+ny)*W+x0+nx]){comp[j]=1;st[sp++]=j;}
+    }
+  }
+  const push=j=>{if(!comp[j]&&!out[j]){out[j]=1;st[sp++]=j;}};
+  sp=0;
+  for(let x=0;x<bw;x++){push(x);push((bh-1)*bw+x);}
+  for(let y=0;y<bh;y++){push(y*bw);push(y*bw+bw-1);}
+  while(sp){
+    const i=st[--sp],x=i%bw,y=(i-x)/bw;
+    if(x>0)push(i-1);if(x<bw-1)push(i+1);if(y>0)push(i-bw);if(y<bh-1)push(i+bw);
+  }
+  return {comp,out};
 }
 
 function drawFit(ctx,text,x,y,w,h,color,maxS){
@@ -156,11 +197,11 @@ function drawFit(ctx,text,x,y,w,h,color,maxS){
     for(const wd of text.split(' ')){
       if(ctx.measureText(wd).width>w){ok=false;break;}
       const test=cur?cur+' '+wd:wd;
-      if(ctx.measureText(test).width<=w) cur=test; else {lines.push(cur);cur=wd;}
+      if(ctx.measureText(test).width<=w)cur=test;else{lines.push(cur);cur=wd;}
     }
-    if(!ok) continue;
+    if(!ok)continue;
     lines.push(cur);
-    if(lines.length*size*1.15<=h) break;
+    if(lines.length*size*1.15<=h)break;
   }
   ctx.font=font(size);
   ctx.fillStyle=color;ctx.textAlign='center';ctx.textBaseline='middle';
@@ -169,7 +210,7 @@ function drawFit(ctx,text,x,y,w,h,color,maxS){
 }
 
 translateBtn.addEventListener('click',async()=>{
-  if(!selectedFile) return;
+  if(!selectedUrl) return;
   translateBtn.disabled=true;
   resultSection.classList.remove('show');
   const from=sourceLang.value==='eng'?'en':'uz';
@@ -177,69 +218,82 @@ translateBtn.addEventListener('click',async()=>{
   let worker;
   try{
     showStatus('OCR tayyorlanmoqda (birinchi marta uzoq bo‘lishi mumkin)...','loading');
-    worker=await Tesseract.createWorker(sourceLang.value,1,{
-      logger:m=>{ if(m.status==='recognizing text') showStatus('Matn o‘qilmoqda: '+Math.round(m.progress*100)+'%','loading'); }
-    });
-const img=(preview.complete&&preview.naturalWidth>0)?preview:await loadImg(selectedUrl);
-    canvas.width=img.naturalWidth; canvas.height=img.naturalHeight;
+    worker=await Tesseract.createWorker(sourceLang.value,1);
+    await worker.setParameters({tessedit_pageseg_mode:'6'});
+
+    const img=(preview.complete&&preview.naturalWidth>0)?preview:await loadImg(selectedUrl);
+    const W=img.naturalWidth,H=img.naturalHeight;
+    canvas.width=W;canvas.height=H;
     const ctx=canvas.getContext('2d',{willReadFrequently:true});
     ctx.drawImage(img,0,0);
 
-    const boxes=[];
-    for(let sy=0;sy<canvas.height;sy+=SLICE){
-      const sh=Math.min(SLICE,canvas.height-sy);
-      const part=document.createElement('canvas');
-      part.width=canvas.width;part.height=sh;
-      part.getContext('2d').drawImage(canvas,0,sy,canvas.width,sh,0,0,canvas.width,sh);
-      const {data}=await worker.recognize(part);
-      const lines=data.lines||(data.blocks||[]).flatMap(b=>(b.paragraphs||[]).flatMap(p=>p.lines||[]));
-      const L=[];
-      for(const ln of lines){
-        const ws=(ln.words||[]).filter(w=>w.confidence>=55&&/\p{L}/u.test(w.text));
-        if(!ws.length) continue;
-        const txt=ws.map(w=>w.text).join(' ').replace(/[^\p{L}\p{N}'’ʻ".,!?\-:; ]/gu,'').replace(/\s+/g,' ').trim();
-        if(!txt) continue;
-        L.push({txt,x0:Math.min(...ws.map(w=>w.bbox.x0)),y0:Math.min(...ws.map(w=>w.bbox.y0)),x1:Math.max(...ws.map(w=>w.bbox.x1)),y1:Math.max(...ws.map(w=>w.bbox.y1))});
-      }
-      L.sort((a,b)=>a.y0-b.y0);
-      const groups=[];
-      for(const l of L){
-        const lh=l.y1-l.y0;
-        const g=groups.find(g=>l.y0-g.y1<lh*0.9&&Math.min(g.x1,l.x1)-Math.max(g.x0,l.x0)>0.3*Math.min(g.x1-g.x0,l.x1-l.x0));
-        if(g){g.txt+=' '+l.txt;g.x0=Math.min(g.x0,l.x0);g.x1=Math.max(g.x1,l.x1);g.y1=Math.max(g.y1,l.y1);g.n++;g.lhs+=lh;}
-        else groups.push({txt:l.txt,x0:l.x0,y0:l.y0,x1:l.x1,y1:l.y1,n:1,lhs:lh});
-      }
-      for(const g of groups){
-        if(g.txt.replace(/[^\p{L}]/gu,'').length<3) continue;
-        boxes.push({txt:g.txt,x0:g.x0,y0:g.y0+sy,x1:g.x1,y1:g.y1+sy,lh:g.lhs/g.n});
-      }
+    showStatus('Pufakchalar qidirilmoqda...','loading');
+    await sleep(50);
+    const {res:bubbles,white}=findBubbles(ctx,W,H);
+    if(!bubbles.length){
+      showStatus('Oq pufakchalar topilmadi','error');
+      await worker.terminate();translateBtn.disabled=false;return;
     }
 
-    if(!boxes.length){
-      showStatus('Rasmdan matn topilmadi','error');
-      translateBtn.disabled=false; await worker.terminate(); return;
-    }
+    const all=[];let done=0,failed=0;
+    for(let n=0;n<bubbles.length;n++){
+      showStatus(`Pufakcha ${n+1}/${bubbles.length}...`,'loading');
+      const b=bubbles[n];
+      const {comp,out}=interiorMask(white,W,b);
+      const id=ctx.getImageData(b.x0,b.y0,b.bw,b.bh);
+      const px=id.data;
 
-    const all=[];
-    for(let i=0;i<boxes.length;i++){
-      showStatus(`Tarjima qilinmoqda: ${i+1}/${boxes.length}`,'loading');
-      const b=boxes[i];
-      const tr=await translate(b.txt,from,to);
-      if(!tr) continue;
+      // Matn teshiklari chegarasi + OCR uchun toza nusxa
+      let tx0=b.bw,ty0=b.bh,tx1=0,ty1=0,holes=0;
+      const cropData=new ImageData(new Uint8ClampedArray(px),b.bw,b.bh);
+      for(let i=0;i<b.bw*b.bh;i++){
+        const p=i*4;
+        if(out[i]){cropData.data[p]=cropData.data[p+1]=cropData.data[p+2]=255;}
+        else if(!comp[i]){
+          const x=i%b.bw,y=(i-x)/b.bw;
+          holes++;
+          if(x<tx0)tx0=x;if(x>tx1)tx1=x;if(y<ty0)ty0=y;if(y>ty1)ty1=y;
+        }
+      }
+      if(holes<40) continue; // bo'sh pufakcha
+
+      const c1=document.createElement('canvas');c1.width=b.bw;c1.height=b.bh;
+      c1.getContext('2d').putImageData(cropData,0,0);
+      const sc=b.bw*2<=2400?2:1;
+      const c2=document.createElement('canvas');c2.width=b.bw*sc;c2.height=b.bh*sc;
+      const c2x=c2.getContext('2d');c2x.imageSmoothingQuality='high';
+      c2x.drawImage(c1,0,0,c2.width,c2.height);
+
+      const {data}=await worker.recognize(c2);
+      const txt=(data.text||'').replace(/[^\p{L}\p{N}'’ʻ".,!?\-:; \n]/gu,' ').replace(/\s+/g,' ').trim();
+      if(data.confidence<35||txt.replace(/[^\p{L}]/gu,'').length<2) continue;
+
+      const tr=await translate(txt,from,to);
+      if(!tr){failed++;continue;}
       all.push(tr);
-      const pad=6;
-      const x=Math.max(0,b.x0-pad),y=Math.max(0,b.y0-pad);
-      const w=Math.min(canvas.width-x,b.x1-b.x0+pad*2),h=Math.min(canvas.height-y,b.y1-b.y0+pad*2);
-      const [r,g,bl]=bgColor(ctx,x-2,y-2,x+w+2,y+h+2);
-      ctx.fillStyle=`rgb(${r},${g},${bl})`;
-      ctx.fillRect(x,y,w,h);
-      drawFit(ctx,tr.toUpperCase(),x,y,w,h,(0.299*r+0.587*g+0.114*bl)>128?'#000':'#fff',Math.round(b.lh*1.4));
-      await new Promise(r=>setTimeout(r,150));
+
+      // Pufakcha ichini oqartirish
+      for(let i=0;i<b.bw*b.bh;i++){
+        if(!out[i]){const p=i*4;px[p]=px[p+1]=px[p+2]=255;}
+      }
+      ctx.putImageData(id,b.x0,b.y0);
+
+      // Matn joyi: eski matn markazida
+      const hw=tx1-tx0+1,hh=ty1-ty0+1;
+      const cx=tx0+hw/2,cy=ty0+hh/2;
+      let rw=Math.min(b.bw*0.92,Math.max(hw*1.15,b.bw*0.62));
+      let rh=Math.min(b.bh*0.92,Math.max(hh*1.15,b.bh*0.5));
+      let rx=Math.max(b.bw*0.04,Math.min(b.bw-rw-b.bw*0.04,cx-rw/2));
+      let ry=Math.max(b.bh*0.04,Math.min(b.bh-rh-b.bh*0.04,cy-rh/2));
+      drawFit(ctx,tr.toUpperCase(),b.x0+rx,b.y0+ry,rw,rh,'#000',Math.round(Math.min(W/16,hh/2)));
+      done++;
+      await sleep(150);
     }
     await worker.terminate();
     translatedText.value=all.join('\n\n');
     resultSection.classList.add('show');
-    showStatus(all.length?'':'Tarjima olinmadi (limit tugagan bo‘lishi mumkin)',all.length?'':'error');
+    if(!done) showStatus('Tarjima qilingan pufakcha topilmadi'+(failed?' (tarjima limiti tugagan bo‘lishi mumkin)':''),'error');
+    else showStatus(failed?`${done} ta pufakcha tarjima qilindi, ${failed} tasi qilinmadi (limit)`:'', failed?'error':'');
     resultSection.scrollIntoView({behavior:'smooth'});
   }catch(err){
     console.error(err);
@@ -249,24 +303,11 @@ const img=(preview.complete&&preview.naturalWidth>0)?preview:await loadImg(selec
   translateBtn.disabled=false;
 });
 
-$('copyBtn').addEventListener('click',()=>{
-  translatedText.select();
-  document.execCommand('copy');
-  alert('Nusxa olindi');
-});
-
+$('copyBtn').addEventListener('click',()=>{translatedText.select();document.execCommand('copy');alert('Nusxa olindi');});
 $('downloadBtn').addEventListener('click',()=>{
-  canvas.toBlob(bl=>{
-    const a=document.createElement('a');
-    a.href=URL.createObjectURL(bl);
-    a.download='tarjima.png';
-    a.click();
-  });
+  canvas.toBlob(bl=>{const a=document.createElement('a');a.href=URL.createObjectURL(bl);a.download='tarjima.png';a.click();});
 });
-
-sourceLang.addEventListener('change',()=>{
-  targetLang.value=sourceLang.value==='eng'?'uzb':'eng';
-});
+sourceLang.addEventListener('change',()=>{targetLang.value=sourceLang.value==='eng'?'uzb':'eng';});
 </script>
 </body>
 </html>
