@@ -1,1 +1,144 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kage Translate</title>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    body {
+      background: #f5f7fa;
+      color: #1a1a1a;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+
+    header h1 {
+      font-size: 28px;
+      font-weight: 700;
+      color: #1e40af;
+    }
+
+    header p {
+      color: #64748b;
+      margin-top: 6px;
+      font-size: 15px;
+    }
+
+    .card {
+      background: white;
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+      margin-bottom: 20px;
+    }
+
+    .row {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .row > div {
+      flex: 1;
+    }
+
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: #475569;
+      margin-bottom: 6px;
+    }
+
+    select, button, textarea {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      font-size: 15px;
+      background: #fff;
+    }
+
+    select:focus, textarea:focus {
+      outline: none;
+      border-color: #3b82f6;
+    }
+
+    .upload-area {
+      border: 2px dashed #cbd5e1;
+      border-radius: 12px;
+      padding: 40px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: 0.2s;
+      background: #f8fafc;
+    }
+
+    .upload-area:hover, .upload-area.dragover {
+      border-color: #3b82f6;
+      background: #eff6ff;
+    }
+
+    .upload-area p {
+      color: #64748b;
+      font-size: 15px;
+    }
+
+    .upload-area small {
+      color: #94a3b8;
+      font-size: 13px;
+    }
+
+    #preview {
+      max-width: 100%;
+      max-height: 300px;
+      border-radius: 10px;
+      margin-top: 16px;
+      display: none;
+    }
+
+    .btn {
+      background: #1e40af;
+      color: white;
+      border: none;
+      font-weight: 600;
+      cursor: pointer;
+      transition: 0.2s;
+      margin-top: 8px;
+    }
+
+    .btn:hover {
+      background: #1e3a8a;
+    }
+
+    .btn:disabled {
+      background: #94a3b8;
+      cursor: not-allowed;
+    }
+
+    .btn-secondary {
+      background: #64748b;
+    }
+
+    .btn-secondary:hover {
+      background: #475569;
+    }
 
