@@ -196,3 +196,128 @@ function interiorMask(lab,W,b){
   }
   return {comp,out};
 }
+// ---------- OCR natijasi haqiqiy matnga o'xshaydimi ----------
+const SHORTW=new Set(['no','oh','ah','uh','ok','hi','go','so','me','we','he','it','is','in','on','to','of','or','up','if','by','my','as','at','be','do','an','am','us','i','a']);
+function plausible(txt,data){
+  const toks=txt.split(' ').filter(Boolean);
+  const good=toks.filter(w=>{
+    const l=w.replace(/[^\p{L}]/gu,'');
+    return (l.length>=3&&/[aeiouyAEIOUY]/.test(l))||(l.length>=1&&l.length<=2&&SHORTW.has(l.toLowerCase()));
+  });
+  if(!good.length||good.length/toks.length<0.5) return false;
+  const ws=data.words||(data.blocks||[]).flatMap(b=>(b.paragraphs||[]).flatMap(p=>(p.lines||[]).flatMap(l=>l.words||[])));
+  if(!ws.length) return data.confidence>=40;
+  return ws.filter(w=>w.confidence>=55&&w.text.replace(/[^\p{L}]/gu,'').length>=2).length>=1;
+}
+
+// ---------- Matnni pufakcha shakliga, asl joyiga joylash ----------
+const FONT=s=>`bold ${s}px "Comic Sans MS","Segoe UI",Roboto,Arial,sans-serif`;
+function layoutItem(ctx,it,text){
+  const {bw,bh,sp,tb}=it,mg=Math.max(4,Math.round(bw*0.025));
+  const words=text.split(/\s+/).filter(Boolean);
+  if(!words.length) return null;
+  // markaz (tb.cx) atrofida simmetrik yarim kenglik
+  const half=(y,h)=>{
+    if(y<0||y+h>bh) return 0;
+    let hw=1e9;
+    for(let k=Math.floor(y);k<Math.ceil(y+h);k++){
+      if(sp.L[k]<0) return 0;
+      hw=Math.min(hw,tb.cx-(sp.L[k]+mg),(sp.R[k]-mg)-tb.cx);
+    }
+    return hw>6?hw:0;
+  };
+  const greedy=(top,lh)=>{
+    const lines=[];let wi=0,y=top;
+    while(wi<words.length){
+      const hw=half(y,lh);if(!hw) return null;
+      const w=2*hw;let cur='';
+      while(wi<words.length){
+        const t=cur?cur+' '+words[wi]:words[wi];
+        if(ctx.measureText(t).width<=w){cur=t;wi++;}else break;
+      }
+      if(!cur) return null;
+      lines.push(cur);y+=lh;
+    }
+    return lines;
+  };
+  const uniform=w=>{
+    const lines=[];let cur='';
+    for(const wd of words){
+      const t=cur?cur+' '+wd:wd;
+      if(ctx.measureText(t).width<=w||!cur) {cur=t;} else {lines.push(cur);cur=wd;}
+    }
+    lines.push(cur);return lines;
+  };
+  for(let size=Math.max(9,Math.floor(it.size0));size>=9;size--){
+    ctx.font=FONT(size);
+    const lh=size*1.15;
+    const total=ctx.measureText(words.join(' ')).width;
+    let w0=2*half(tb.cy-lh/2,lh);if(!w0) w0=tb.w*1.2;
+    let top=tb.cy-Math.max(1,Math.ceil(total/(w0*0.9)))*lh/2,best=null;
+    for(let k=0;k<5;k++){
+      const l=greedy(top,lh);if(!l) break;
+      best={lines:l,top};
+      const nt=tb.cy-l.length*lh/2;
+      if(Math.abs(nt-top)<2){best.top=nt;break;}
+      top=nt;
+    }
+    if(!best) continue;
+    // qatorlarni tekis (muvozanatli) taqsimlash
+    let n=best.lines.length;
+    if(n>=2){
+      let lo=Math.max(...words.map(w=>ctx.measureText(w).width)),hi=Math.max(...best.lines.map(l=>ctx.measureText(l).width));
+      for(let k=0;k<14&&hi-lo>1;k++){const mid=(lo+hi)/2;if(uniform(mid).length<=n)hi=mid;else lo=mid;}
+      const l2=uniform(hi),t2=tb.cy-l2.length*lh/2;
+      let ok=true;
+      l2.forEach((l,i)=>{const hw=half(t2+i*lh,lh);if(!hw||ctx.measureText(l).width>2*hw) ok=false;});
+      if(ok) best={lines:l2,top:t2};
+    }
+    return {size,lh,top:best.top,lines:best.lines};
+  }
+  // sig'masa: eng kichik o'lchamda asl matn markazida
+  ctx.font=FONT(9);
+  const l=uniform(Math.max(tb.w*1.2,80));
+  return {size:9,lh:10.4,top:tb.cy-l.length*5.2,lines:l};
+}
+
+function eraseItem(ctx,it){
+  const {b,out,fill}=it;
+  const id=ctx.getImageData(b.x0,b.y0,b.bw,b.bh),px=id.data;
+  for(let i=0;i<b.bw*b.bh;i++){ if(!out[i]){const p=i*4;px[p]=fill[0];px[p+1]=fill[1];px[p+2]=fill[2];} }
+  ctx.putImageData(id,b.x0,b.y0);
+}
+function drawItem(ctx,it){
+  const text=it.upper?it.uz.toUpperCase():it.uz;
+  const L=layoutItem(ctx,it,text);if(!L) return;
+  ctx.font=FONT(L.size);ctx.fillStyle=it.color;ctx.textAlign='center';ctx.textBaseline='middle';
+  L.lines.forEach((l,i)=>ctx.fillText(l,it.b.x0+it.tb.cx,it.b.y0+L.top+i*L.lh+L.lh/2));
+}
+function render(){
+  if(!state) return;
+  const {ctx,img,items}=state;
+  ctx.drawImage(img,0,0);
+  const act=items.filter(it=>it.uz.trim());
+  act.forEach(it=>eraseItem(ctx,it));
+  act.forEach(it=>drawItem(ctx,it));
+}
+
+// ---------- Tahrirlash oynasi ----------
+function buildCards(){
+  itemsBox.innerHTML='';
+  state.items.forEach((it,i)=>{
+    const d=document.createElement('div');d.className='item';
+    d.innerHTML='<label></label><textarea class="en"></textarea><button class="mini">Qayta tarjima</button><label>Tarjima (tahrirlash mumkin)</label><textarea class="uz"></textarea>';
+    const [l1,l2]=d.querySelectorAll('label'),en=d.querySelector('.en'),uz=d.querySelector('.uz'),btn=d.querySelector('.mini');
+    l1.textContent=`${i+1}. Asl matn`;
+    en.value=it.en;uz.value=it.uz;
+    en.oninput=()=>{it.en=en.value;};
+    uz.oninput=()=>{it.uz=uz.value;};
+    btn.onclick=async()=>{
+      btn.disabled=true;btn.textContent='...';
+      const tr=await translate(it.en,state.from,state.to);
+      if(tr){it.uz=polish(tr,state.to);uz.value=it.uz;}
+      btn.disabled=false;btn.textContent='Qayta tarjima';
+    };
+    itemsBox.appendChild(d);
+  });
+}
