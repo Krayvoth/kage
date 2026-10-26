@@ -327,3 +327,174 @@ function layoutItem(ctx,it,text){
     }
     return {size,lh,top:best.top,lines:best.lines};
   }
+// sig'masa: eng kichik o'lchamda asl matn markazida
+  ctx.font=FONT(9);
+  const l=uniform(Math.max(tb.w*1.2,80));
+  return {size:9,lh:10.4,top:tb.cy-l.length*5.2,lines:l};
+}
+
+function eraseItem(ctx,it){
+  const {b,out,fill}=it;
+  const id=ctx.getImageData(b.x0,b.y0,b.bw,b.bh),px=id.data;
+  for(let i=0;i<b.bw*b.bh;i++){ if(!out[i]){const p=i*4;px[p]=fill[0];px[p+1]=fill[1];px[p+2]=fill[2];} }
+  ctx.putImageData(id,b.x0,b.y0);
+}
+function drawItem(ctx,it){
+  const text=it.upper?it.uz.toUpperCase():it.uz;
+  const L=layoutItem(ctx,it,text);if(!L) return;
+  ctx.font=FONT(L.size);ctx.fillStyle=it.color;ctx.textAlign='center';ctx.textBaseline='middle';
+  L.lines.forEach((l,i)=>ctx.fillText(l,it.b.x0+it.tb.cx,it.b.y0+L.top+i*L.lh+L.lh/2));
+}
+function render(){
+  if(!state) return;
+  const {ctx,img,items}=state;
+  ctx.drawImage(img,0,0);
+  const act=items.filter(it=>it.uz.trim());
+  act.forEach(it=>eraseItem(ctx,it));
+  act.forEach(it=>drawItem(ctx,it));
+}
+
+// ---------- Tahrirlash oynasi ----------
+function buildCards(){
+  itemsBox.innerHTML='';
+  state.items.forEach((it,i)=>{
+    const d=document.createElement('div');d.className='item';
+    d.innerHTML='<label></label><textarea class="en"></textarea><button class="mini">Qayta tarjima</button><label>Tarjima (tahrirlash mumkin)</label><textarea class="uz"></textarea><div class="alts"></div>';
+    const [l1]=d.querySelectorAll('label'),en=d.querySelector('.en'),uz=d.querySelector('.uz'),btn=d.querySelector('.mini'),alts=d.querySelector('.alts');
+    l1.textContent=`${i+1}. Asl matn`;
+    en.value=it.en;uz.value=it.uz;
+    en.oninput=()=>{it.en=en.value;};
+    uz.oninput=()=>{it.uz=uz.value;};
+    const showAlts=()=>{
+      alts.innerHTML='';
+      if(!it.alts||it.alts.length<2) return;
+      it.alts.forEach(a=>{
+        const b=document.createElement('button');b.className='alt';
+        const n=document.createElement('b');n.textContent=a.n+': ';
+        b.appendChild(n);b.appendChild(document.createTextNode(a.t));
+        b.onclick=()=>{it.uz=a.t;uz.value=a.t;};
+        alts.appendChild(b);
+      });
+    };
+    showAlts();
+    btn.onclick=async()=>{
+      btn.disabled=true;btn.textContent='...';
+      const tr=await translateAll(it.en,state.from,state.to);
+      if(tr){it.uz=tr.best;it.alts=tr.alts;uz.value=it.uz;showAlts();}
+      btn.disabled=false;btn.textContent='Qayta tarjima';
+    };
+    itemsBox.appendChild(d);
+  });
+}
+
+// ---------- Asosiy jarayon ----------
+translateBtn.addEventListener('click',async()=>{
+  if(!selectedUrl) return;
+  translateBtn.disabled=true;
+  resultSection.classList.remove('show');
+  itemsBox.innerHTML='';
+  const from=sourceLang.value==='eng'?'en':'uz';
+  const to=targetLang.value==='eng'?'en':'uz';
+  let worker;
+  try{
+    showStatus('OCR tayyorlanmoqda (birinchi marta uzoq bo‘lishi mumkin)...','loading');
+    worker=await Tesseract.createWorker(sourceLang.value,1);
+    await worker.setParameters(Object.assign({tessedit_pageseg_mode:'6'},sourceLang.value==='eng'?{tessedit_char_whitelist:"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'’\".,!?-:;… "}:{}));
+
+    const img=(preview.complete&&preview.naturalWidth>0)?preview:await loadImg(selectedUrl);
+    const W=img.naturalWidth,H=img.naturalHeight;
+    canvas.width=W;canvas.height=H;
+    const ctx=canvas.getContext('2d',{willReadFrequently:true});
+    ctx.drawImage(img,0,0);
+
+    showStatus('Pufakchalar qidirilmoqda...','loading');
+    await sleep(50);
+    const {res:bubbles,lab}=findBubbles(ctx,W,H);
+    const list=bubbles.filter((a,i)=>!bubbles.some((c,j)=>j!==i&&c.bw*c.bh<a.bw*a.bh&&c.x0>=a.x0&&c.y0>=a.y0&&c.x0+c.bw<=a.x0+a.bw&&c.y0+c.bh<=a.y0+a.bh));
+    const items=[],skipped=[];let failed=0;
+
+    for(let n=0;n<list.length;n++){
+      showStatus(`Pufakcha ${n+1}/${list.length}...`,'loading');
+      const b=list[n];
+      const {comp,out}=interiorMask(lab,W,b);
+      const id=ctx.getImageData(b.x0,b.y0,b.bw,b.bh);
+      const px=id.data,NN=b.bw*b.bh;
+
+      let tx0=b.bw,ty0=b.bh,tx1=0,ty1=0,holes=0,inter=0;
+      const cropData=new ImageData(new Uint8ClampedArray(px),b.bw,b.bh);
+      for(let i=0;i<NN;i++){
+        const p=i*4;
+        if(!out[i]) inter++;
+        if(out[i]){cropData.data[p]=cropData.data[p+1]=cropData.data[p+2]=255;}
+        else if(!comp[i]){
+          const x=i%b.bw,y=(i-x)/b.bw;
+          holes++;
+          if(x<tx0)tx0=x;if(x>tx1)tx1=x;if(y<ty0)ty0=y;if(y>ty1)ty1=y;
+        }
+      }
+      if(holes<40||holes/(inter||1)>0.4){ skipped.push(`@${b.x0},${b.y0} matn yo‘q`); continue; }
+
+      // fon bir xil rangda bo'lishi kerak
+      let fillL=255;
+      { let k=0,sm=0,sq=0;
+        for(let i=0;i<NN;i+=5){ if(comp[i]){const l=lumOf(px,i*4);k++;sm+=l;sq+=l*l;} }
+        if(k<50) continue;
+        const mean=sm/k;fillL=mean;
+        if(Math.sqrt(Math.max(0,sq/k-mean*mean))>28){ skipped.push(`@${b.x0},${b.y0} fon notekis`); continue; }
+      }
+      // chegarasi qora chiziq bilan o'ralgan bo'lishi kerak
+      { const bw=b.bw,bh=b.bh;let tot=0,dk=0;
+        const lumAt=(x,y)=>{if(x<0||y<0||x>=bw||y>=bh) return 0;return lumOf(px,(y*bw+x)*4);};
+        const dirs=[[1,0],[-1,0],[0,1],[0,-1]];
+        for(let y=0;y<bh;y+=2){for(let x=0;x<bw;x+=2){
+          if(!comp[y*bw+x]) continue;
+          for(const [dx,dy] of dirs){
+            const nx=x+dx,ny=y+dy;
+            if(nx>=0&&ny>=0&&nx<bw&&ny<bh&&comp[ny*bw+nx]) continue;
+            tot++; if([1,2,3,4,5].some(k=>lumAt(x+dx*k,y+dy*k)<110)) dk++; break;
+          }
+        }}
+        if(tot<20||dk/tot<0.5){ skipped.push(`@${b.x0},${b.y0} chegara ${(dk/(tot||1)).toFixed(2)}`); continue; }
+      }
+
+      // OCR uchun nusxa (3x)
+      const c1=document.createElement('canvas');c1.width=b.bw;c1.height=b.bh;
+      c1.getContext('2d').putImageData(cropData,0,0);
+      // OCR masshtabi: harf balandligi ~44px bo'lsin (juda katta yoki kichik harflar o'qilmaydi)
+      let capH=0;
+      { const cnt=new Int32Array(b.bh);
+        const dist=new Int16Array(NN).fill(30000);
+        for(let i=0;i<NN;i++) if(out[i]) dist[i]=0;
+        for(let y=0;y<b.bh;y++)for(let x=0;x<b.bw;x++){const i=y*b.bw+x;let d=dist[i];if(x>0&&dist[i-1]+1<d)d=dist[i-1]+1;if(y>0&&dist[i-b.bw]+1<d)d=dist[i-b.bw]+1;dist[i]=d;}
+        for(let y=b.bh-1;y>=0;y--)for(let x=b.bw-1;x>=0;x--){const i=y*b.bw+x;let d=dist[i];if(x<b.bw-1&&dist[i+1]+1<d)d=dist[i+1]+1;if(y<b.bh-1&&dist[i+b.bw]+1<d)d=dist[i+b.bw]+1;dist[i]=d;}
+        const dmin=Math.max(4,Math.round(0.07*Math.min(b.bw,b.bh)));
+        for(let y=0;y<b.bh;y++){let c=0;for(let x=0;x<b.bw;x++){const i=y*b.bw+x;if(dist[i]>=dmin&&!out[i]&&!comp[i])c++;}cnt[y]=c;}
+        let mx=0;for(let y=0;y<b.bh;y++) if(cnt[y]>mx) mx=cnt[y];
+        const thr=Math.max(2,mx*0.18),runs=[];let st=-1;
+        for(let y=0;y<=b.bh;y++){const on=y<b.bh&&cnt[y]>=thr;if(on&&st<0)st=y;if(!on&&st>=0){if(y-st>=4)runs.push(y-st);st=-1;}}
+        runs.sort((u,v)=>u-v);capH=runs.length?runs[(runs.length-1)>>2]:0; }
+      let sc=capH?44/capH:(b.bw*3<=2400?3:2);
+      sc=Math.max(0.12,Math.min(sc,4,3200/b.bw,3200/b.bh));
+      const c2=document.createElement('canvas');c2.width=Math.max(1,Math.round(b.bw*sc));c2.height=Math.max(1,Math.round(b.bh*sc));
+      const c2x=c2.getContext('2d');c2x.imageSmoothingQuality='high';
+      c2x.drawImage(c1,0,0,c2.width,c2.height);
+      if(fillL>=150){
+        const bd=c2x.getImageData(0,0,c2.width,c2.height),T=fillL*0.62;
+        for(let i=0;i<bd.data.length;i+=4){
+          const v=lumOf(bd.data,i)<T?0:255;
+          bd.data[i]=bd.data[i+1]=bd.data[i+2]=v;
+        }
+        c2x.putImageData(bd,0,0);
+      }
+      let {data}=await worker.recognize(c2);
+      if(data.confidence<55){
+        await worker.setParameters({tessedit_pageseg_mode:'11'});
+        const r2=await worker.recognize(c2);
+        await worker.setParameters({tessedit_pageseg_mode:'6'});
+        if(r2.data.confidence>data.confidence) data=r2.data;
+      }
+      const txt=(data.text||'').replace(/[^\p{L}\p{N}'’ʻ".,!?\-:; \n]/gu,' ').replace(/\s+/g,' ').trim();
+      const lettersN=txt.replace(/[^\p{L}]/gu,'').length,alnumN=txt.replace(/[^\p{L}\p{N}]/gu,'').length||1;
+      if(data.confidence<(fillL<235?35:20)||lettersN<2||lettersN/alnumN<0.8||!plausible(txt,data)){
+        skipped.push(`@${b.x0},${b.y0} ${Math.round(data.confidence)}%:${txt.slice(0,18)}`);continue;
+      }
