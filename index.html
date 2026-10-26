@@ -321,3 +321,181 @@ function buildCards(){
     itemsBox.appendChild(d);
   });
 }
+// ---------- Asosiy jarayon ----------
+translateBtn.addEventListener('click',async()=>{
+  if(!selectedUrl) return;
+  translateBtn.disabled=true;
+  resultSection.classList.remove('show');
+  itemsBox.innerHTML='';
+  const from=sourceLang.value==='eng'?'en':'uz';
+  const to=targetLang.value==='eng'?'en':'uz';
+  let worker;
+  try{
+    showStatus('OCR tayyorlanmoqda (birinchi marta uzoq bo‘lishi mumkin)...','loading');
+    worker=await Tesseract.createWorker(sourceLang.value,1);
+    await worker.setParameters(Object.assign({tessedit_pageseg_mode:'6'},sourceLang.value==='eng'?{tessedit_char_whitelist:"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'’\".,!?-:;… "}:{}));
+
+    const img=(preview.complete&&preview.naturalWidth>0)?preview:await loadImg(selectedUrl);
+    const W=img.naturalWidth,H=img.naturalHeight;
+    canvas.width=W;canvas.height=H;
+    const ctx=canvas.getContext('2d',{willReadFrequently:true});
+    ctx.drawImage(img,0,0);
+
+    showStatus('Pufakchalar qidirilmoqda...','loading');
+    await sleep(50);
+    const {res:bubbles,lab}=findBubbles(ctx,W,H);
+    const list=bubbles.filter((a,i)=>!bubbles.some((c,j)=>j!==i&&c.bw*c.bh<a.bw*a.bh&&c.x0>=a.x0&&c.y0>=a.y0&&c.x0+c.bw<=a.x0+a.bw&&c.y0+c.bh<=a.y0+a.bh));
+    const items=[],skipped=[];let failed=0;
+
+    for(let n=0;n<list.length;n++){
+      showStatus(`Pufakcha ${n+1}/${list.length}...`,'loading');
+      const b=list[n];
+      const {comp,out}=interiorMask(lab,W,b);
+      const id=ctx.getImageData(b.x0,b.y0,b.bw,b.bh);
+      const px=id.data,NN=b.bw*b.bh;
+
+      let tx0=b.bw,ty0=b.bh,tx1=0,ty1=0,holes=0,inter=0;
+      const cropData=new ImageData(new Uint8ClampedArray(px),b.bw,b.bh);
+      for(let i=0;i<NN;i++){
+        const p=i*4;
+        if(!out[i]) inter++;
+        if(out[i]){cropData.data[p]=cropData.data[p+1]=cropData.data[p+2]=255;}
+        else if(!comp[i]){
+          const x=i%b.bw,y=(i-x)/b.bw;
+          holes++;
+          if(x<tx0)tx0=x;if(x>tx1)tx1=x;if(y<ty0)ty0=y;if(y>ty1)ty1=y;
+        }
+      }
+      if(holes<40||holes/(inter||1)>0.4){ skipped.push(`@${b.x0},${b.y0} matn yo‘q`); continue; }
+
+      // fon bir xil rangda bo'lishi kerak
+      let fillL=255;
+      { let k=0,sm=0,sq=0;
+        for(let i=0;i<NN;i+=5){ if(comp[i]){const l=lumOf(px,i*4);k++;sm+=l;sq+=l*l;} }
+        if(k<50) continue;
+        const mean=sm/k;fillL=mean;
+        if(Math.sqrt(Math.max(0,sq/k-mean*mean))>28){ skipped.push(`@${b.x0},${b.y0} fon notekis`); continue; }
+      }
+      // chegarasi qora chiziq bilan o'ralgan bo'lishi kerak
+      { const bw=b.bw,bh=b.bh;let tot=0,dk=0;
+        const lumAt=(x,y)=>{if(x<0||y<0||x>=bw||y>=bh) return 0;return lumOf(px,(y*bw+x)*4);};
+        const dirs=[[1,0],[-1,0],[0,1],[0,-1]];
+        for(let y=0;y<bh;y+=2){for(let x=0;x<bw;x+=2){
+          if(!comp[y*bw+x]) continue;
+          for(const [dx,dy] of dirs){
+            const nx=x+dx,ny=y+dy;
+            if(nx>=0&&ny>=0&&nx<bw&&ny<bh&&comp[ny*bw+nx]) continue;
+            tot++; if([1,2,3,4,5].some(k=>lumAt(x+dx*k,y+dy*k)<110)) dk++; break;
+          }
+        }}
+        if(tot<20||dk/tot<0.5){ skipped.push(`@${b.x0},${b.y0} chegara ${(dk/(tot||1)).toFixed(2)}`); continue; }
+      }
+
+      // OCR uchun nusxa (3x)
+      const c1=document.createElement('canvas');c1.width=b.bw;c1.height=b.bh;
+      c1.getContext('2d').putImageData(cropData,0,0);
+      const sc=b.bw*3<=2400?3:(b.bw*2<=2400?2:1);
+      const c2=document.createElement('canvas');c2.width=b.bw*sc;c2.height=b.bh*sc;
+      const c2x=c2.getContext('2d');c2x.imageSmoothingQuality='high';
+      c2x.drawImage(c1,0,0,c2.width,c2.height);
+      if(fillL>=150){
+        const bd=c2x.getImageData(0,0,c2.width,c2.height),T=fillL*0.62;
+        for(let i=0;i<bd.data.length;i+=4){
+          const v=lumOf(bd.data,i)<T?0:255;
+          bd.data[i]=bd.data[i+1]=bd.data[i+2]=v;
+        }
+        c2x.putImageData(bd,0,0);
+      }
+      let {data}=await worker.recognize(c2);
+      if(data.confidence<55){
+        await worker.setParameters({tessedit_pageseg_mode:'11'});
+        const r2=await worker.recognize(c2);
+        await worker.setParameters({tessedit_pageseg_mode:'6'});
+        if(r2.data.confidence>data.confidence) data=r2.data;
+      }
+      const txt=(data.text||'').replace(/[^\p{L}\p{N}'’ʻ".,!?\-:; \n]/gu,' ').replace(/\s+/g,' ').trim();
+      const lettersN=txt.replace(/[^\p{L}]/gu,'').length,alnumN=txt.replace(/[^\p{L}\p{N}]/gu,'').length||1;
+      if(data.confidence<(fillL<235?35:20)||lettersN<2||lettersN/alnumN<0.8||!plausible(txt,data)){
+        skipped.push(`@${b.x0},${b.y0} ${Math.round(data.confidence)}%:${txt.slice(0,18)}`);continue;
+      }
+
+      // 1-qoida: asl matn joyi va o'lchami (OCR qatorlaridan)
+      const lines=(data.lines||(data.blocks||[]).flatMap(bk=>(bk.paragraphs||[]).flatMap(p=>p.lines||[])))
+        .filter(l=>l.bbox&&(l.words||[]).some(w=>w.confidence>=40));
+      let tb,size0;
+      if(lines.length){
+        const X0=Math.min(...lines.map(l=>l.bbox.x0)),X1=Math.max(...lines.map(l=>l.bbox.x1));
+        const Y0=Math.min(...lines.map(l=>l.bbox.y0)),Y1=Math.max(...lines.map(l=>l.bbox.y1));
+        tb={cx:(X0+X1)/2/sc,cy:(Y0+Y1)/2/sc,w:(X1-X0)/sc,h:(Y1-Y0)/sc};
+        const cs=lines.map(l=>(l.bbox.y0+l.bbox.y1)/2/sc).sort((u,v)=>u-v);
+        const hs=lines.map(l=>(l.bbox.y1-l.bbox.y0)/sc).sort((u,v)=>u-v);
+        const medH=hs[hs.length>>1];
+        if(cs.length>=2){const ds=[];for(let i=1;i<cs.length;i++)ds.push(cs[i]-cs[i-1]);ds.sort((u,v)=>u-v);size0=ds[ds.length>>1]/1.15;}
+        else size0=medH/0.72;
+      }else{
+        tb={cx:(tx0+tx1)/2,cy:(ty0+ty1)/2,w:tx1-tx0+1,h:ty1-ty0+1};size0=tb.h/Math.max(1,txt.split(' ').length/3);
+      }
+      size0=Math.max(10,Math.min(size0*1.05,b.bh/2));
+
+      // fon rangi (pufakchaning o'zidan)
+      const sR=[],sG=[],sB=[];
+      for(let i=0;i<NN;i+=5){ if(comp[i]){const p=i*4;sR.push(px[p]);sG.push(px[p+1]);sB.push(px[p+2]);} }
+      const md=a=>a.sort((u,v)=>u-v)[a.length>>1]||255;
+      const fill=[md(sR),md(sG),md(sB)];
+
+      // 2-qoida: asl matn rangi (fondan eng ko'p farq qiladigan piksellar)
+      const cand=[];
+      const rx0=Math.max(0,Math.floor(tb.cx-tb.w/2)-6),rx1=Math.min(b.bw-1,Math.ceil(tb.cx+tb.w/2)+6);
+      const ry0=Math.max(0,Math.floor(tb.cy-tb.h/2)-6),ry1=Math.min(b.bh-1,Math.ceil(tb.cy+tb.h/2)+6);
+      for(let y=ry0;y<=ry1;y++)for(let x=rx0;x<=rx1;x++){
+        const i=y*b.bw+x;if(out[i]||comp[i]) continue;
+        cand.push([Math.abs(lumOf(px,i*4)-fillL),i*4]);
+      }
+      cand.sort((u,v)=>v[0]-u[0]);
+      let color=fillL>150?'#000':'#fff';
+      if(cand.length>=20){
+        const k=Math.max(20,Math.floor(cand.length*0.25));let r=0,g=0,bl=0,cs=0;
+        for(let j=0;j<k;j++){const p=cand[j][1];r+=px[p];g+=px[p+1];bl+=px[p+2];cs+=cand[j][0];}
+        if(cs/k>=50) color=`rgb(${Math.round(r/k)},${Math.round(g/k)},${Math.round(bl/k)})`;
+      }
+
+      // pufakchaning chap/o'ng chegarasi (qatorlar bo'yicha)
+      const spL=new Int16Array(b.bh).fill(-1),spR=new Int16Array(b.bh).fill(-1);
+      for(let y=0;y<b.bh;y++){
+        for(let x=0;x<b.bw;x++){ if(!out[y*b.bw+x]){spL[y]=x;break;} }
+        for(let x=b.bw-1;x>=0;x--){ if(!out[y*b.bw+x]){spR[y]=x;break;} }
+      }
+
+      // tarjima
+      const tr=await translate(txt,from,to);
+      if(!tr){failed++;continue;}
+      const letters=txt.replace(/[^\p{L}]/gu,'');
+      const upper=letters.length>0&&letters.replace(/[^\p{Lu}]/gu,'').length/letters.length>=0.7;
+      items.push({b,out,fill,color,tb,size0,bw:b.bw,bh:b.bh,sp:{L:spL,R:spR},en:txt,uz:polish(tr,to),upper});
+      await sleep(120);
+    }
+    await worker.terminate();
+
+    state={img,ctx,W,H,items,from,to};
+    buildCards();
+    render();
+    resultSection.classList.add('show');
+    if(!items.length) showStatus(`Tarjima qilingan pufakcha topilmadi (${list.length} ta joy tekshirildi)`+(failed?' | tarjima limiti tugagan bo‘lishi mumkin':'')+(skipped.length?` | ${skipped.slice(0,6).join(' ; ')}`:''),'error');
+    else showStatus(`${items.length}/${list.length} ta pufakcha tarjima qilindi`+(failed?`, ${failed} tasi tarjimon xatosi sababli qilinmadi`:'')+(skipped.length?` | o‘qilmadi: ${skipped.slice(0,4).join(' ; ')}`:''),'loading');
+    resultSection.scrollIntoView({behavior:'smooth'});
+  }catch(err){
+    console.error(err);
+    showStatus('Xatolik: '+err.message,'error');
+    if(worker) try{await worker.terminate();}catch(e){}
+  }
+  translateBtn.disabled=false;
+});
+
+$('applyBtn').addEventListener('click',()=>{render();showStatus('Tarjima rasmga qayta joylandi','loading');});
+$('downloadBtn').addEventListener('click',()=>{
+  canvas.toBlob(bl=>{const a=document.createElement('a');a.href=URL.createObjectURL(bl);a.download='tarjima.png';a.click();});
+});
+sourceLang.addEventListener('change',()=>{targetLang.value=sourceLang.value==='eng'?'uzb':'eng';});
+</script>
+</body>
+</html>
