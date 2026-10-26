@@ -498,3 +498,84 @@ translateBtn.addEventListener('click',async()=>{
       if(data.confidence<(fillL<235?35:20)||lettersN<2||lettersN/alnumN<0.8||!plausible(txt,data)){
         skipped.push(`@${b.x0},${b.y0} ${Math.round(data.confidence)}%:${txt.slice(0,18)}`);continue;
       }
+// 1-qoida: asl matn joyi va o'lchami (OCR qatorlaridan)
+      const lines=(data.lines||(data.blocks||[]).flatMap(bk=>(bk.paragraphs||[]).flatMap(p=>p.lines||[])))
+        .filter(l=>l.bbox&&(l.words||[]).some(w=>w.confidence>=40));
+      let tb,size0;
+      if(lines.length){
+        const X0=Math.min(...lines.map(l=>l.bbox.x0)),X1=Math.max(...lines.map(l=>l.bbox.x1));
+        const Y0=Math.min(...lines.map(l=>l.bbox.y0)),Y1=Math.max(...lines.map(l=>l.bbox.y1));
+        tb={cx:(X0+X1)/2/sc,cy:(Y0+Y1)/2/sc,w:(X1-X0)/sc,h:(Y1-Y0)/sc};
+        const cs=lines.map(l=>(l.bbox.y0+l.bbox.y1)/2/sc).sort((u,v)=>u-v);
+        const hs=lines.map(l=>(l.bbox.y1-l.bbox.y0)/sc).sort((u,v)=>u-v);
+        const medH=hs[hs.length>>1];
+        if(cs.length>=2){const ds=[];for(let i=1;i<cs.length;i++)ds.push(cs[i]-cs[i-1]);ds.sort((u,v)=>u-v);size0=ds[ds.length>>1]/1.15;}
+        else size0=medH/0.72;
+      }else{
+        tb={cx:(tx0+tx1)/2,cy:(ty0+ty1)/2,w:tx1-tx0+1,h:ty1-ty0+1};size0=tb.h/Math.max(1,txt.split(' ').length/3);
+      }
+      size0=Math.max(10,Math.min(size0*1.05,b.bh/2));
+
+      // fon rangi (pufakchaning o'zidan)
+      const sR=[],sG=[],sB=[];
+      for(let i=0;i<NN;i+=5){ if(comp[i]){const p=i*4;sR.push(px[p]);sG.push(px[p+1]);sB.push(px[p+2]);} }
+      const md=a=>a.sort((u,v)=>u-v)[a.length>>1]||255;
+      const fill=[md(sR),md(sG),md(sB)];
+
+      // 2-qoida: asl matn rangi (fondan eng ko'p farq qiladigan piksellar)
+      const cand=[];
+      const rx0=Math.max(0,Math.floor(tb.cx-tb.w/2)-6),rx1=Math.min(b.bw-1,Math.ceil(tb.cx+tb.w/2)+6);
+      const ry0=Math.max(0,Math.floor(tb.cy-tb.h/2)-6),ry1=Math.min(b.bh-1,Math.ceil(tb.cy+tb.h/2)+6);
+      for(let y=ry0;y<=ry1;y++)for(let x=rx0;x<=rx1;x++){
+        const i=y*b.bw+x;if(out[i]||comp[i]) continue;
+        cand.push([Math.abs(lumOf(px,i*4)-fillL),i*4]);
+      }
+      cand.sort((u,v)=>v[0]-u[0]);
+      let color=fillL>150?'#000':'#fff';
+      if(cand.length>=20){
+        const k=Math.max(20,Math.floor(cand.length*0.25));let r=0,g=0,bl=0,cs=0;
+        for(let j=0;j<k;j++){const p=cand[j][1];r+=px[p];g+=px[p+1];bl+=px[p+2];cs+=cand[j][0];}
+        if(cs/k>=50) color=`rgb(${Math.round(r/k)},${Math.round(g/k)},${Math.round(bl/k)})`;
+      }
+
+      // pufakchaning chap/o'ng chegarasi (qatorlar bo'yicha)
+      const spL=new Int16Array(b.bh).fill(-1),spR=new Int16Array(b.bh).fill(-1);
+      for(let y=0;y<b.bh;y++){
+        for(let x=0;x<b.bw;x++){ if(!out[y*b.bw+x]){spL[y]=x;break;} }
+        for(let x=b.bw-1;x>=0;x--){ if(!out[y*b.bw+x]){spR[y]=x;break;} }
+      }
+
+      // tarjima
+      const tr=await translateAll(txt,from,to);
+      if(!tr){failed++;continue;}
+      const letters=txt.replace(/[^\p{L}]/gu,'');
+      const upper=letters.length>0&&letters.replace(/[^\p{Lu}]/gu,'').length/letters.length>=0.7;
+      items.push({b,out,fill,color,tb,size0,bw:b.bw,bh:b.bh,sp:{L:spL,R:spR},en:txt,uz:tr.best,alts:tr.alts,upper});
+      await sleep(120);
+    }
+    await worker.terminate();
+
+    state={img,ctx,W,H,items,from,to};
+    buildCards();
+    render();
+    resultSection.classList.add('show');
+    if(!items.length) showStatus(`Tarjima qilingan pufakcha topilmadi (${list.length} ta joy tekshirildi)`+(failed?' | tarjima limiti tugagan bo‘lishi mumkin':'')+(skipped.length?` | ${skipped.slice(0,6).join(' ; ')}`:''),'error');
+    else showStatus(`${items.length}/${list.length} ta pufakcha tarjima qilindi`+(failed?`, ${failed} tasi tarjimon xatosi sababli qilinmadi`:'')+(skipped.length?` | o‘qilmadi: ${skipped.slice(0,4).join(' ; ')}`:''),'loading');
+    resultSection.scrollIntoView({behavior:'smooth'});
+  }catch(err){
+    console.error(err);
+    showStatus('Xatolik: '+err.message,'error');
+    if(worker) try{await worker.terminate();}catch(e){}
+  }
+  translateBtn.disabled=false;
+});
+
+$('applyBtn').addEventListener('click',()=>{render();showStatus('Tarjima rasmga qayta joylandi','loading');});
+$('downloadBtn').addEventListener('click',()=>{
+  canvas.toBlob(bl=>{const a=document.createElement('a');a.href=URL.createObjectURL(bl);a.download='tarjima.png';a.click();});
+});
+sourceLang.addEventListener('change',()=>{targetLang.value=sourceLang.value==='eng'?'uzb':'eng';});
+</script>
+</body>
+</html>
+
