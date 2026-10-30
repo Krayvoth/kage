@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kage Translate</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+body{background:#f5f7fa;color:#1a1a1a;min-height:100vh;padding:20px}
+.container{max-width:600px;margin:0 auto}
+header{text-align:center;margin-bottom:24px}
+header h1{font-size:28px;color:#1e40af}
+header p{color:#64748b;margin-top:6px;font-size:15px}
+.card{background:#fff;border-radius:16px;padding:20px;box-shadow:0 4px 12px rgba(0,0,0,.06);margin-bottom:20px}
+.row{display:flex;gap:12px;margin-bottom:16px}
+.row>div{flex:1}
+label{display:block;font-size:13px;font-weight:600;color:#475569;margin-bottom:6px}
+select,button,textarea{width:100%;padding:12px 14px;border:1px solid #e2e8f0;border-radius:10px;font-size:15px;background:#fff}
+.upload-area{border:2px dashed #cbd5e1;border-radius:12px;padding:30px 20px;text-align:center;cursor:pointer;background:#f8fafc}
+.upload-area p{color:#64748b}
+.upload-area small{color:#94a3b8}
+#preview{max-width:100%;max-height:250px;border-radius:10px;margin-top:14px;display:none}
+.btn{background:#1e40af;color:#fff;border:none;font-weight:600;cursor:pointer;margin-top:10px}
+.btn:disabled{background:#94a3b8}
+.btn-secondary{background:#64748b}
+.status{text-align:center;padding:12px;border-radius:10px;margin-top:14px;font-size:14px;display:none}
+.status.loading{background:#eff6ff;color:#1e40af;display:block}
+.status.error{background:#fef2f2;color:#b91c1c;display:block}
+.result-section{display:none}
+.result-section.show{display:block}
+#resultCanvas{width:100%;height:auto;border-radius:8px;display:block;background:#eee}
+textarea{line-height:1.4;resize:vertical}
+.actions{display:flex;gap:10px;margin-top:12px}
+.item{border:1px solid #e2e8f0;border-radius:12px;padding:12px;margin-top:12px}
+.item textarea.en{min-height:56px;font-size:13px;color:#475569;background:#f8fafc}
+.item textarea.uz{min-height:80px}
+.mini{width:auto;padding:8px 12px;font-size:13px;margin:6px 0 10px;background:#e2e8f0;color:#1e293b;border:0;border-radius:8px;cursor:pointer}
+footer{text-align:center;margin-top:30px;color:#94a3b8;font-size:13px}
+.alt{width:100%;text-align:left;padding:8px 10px;font-size:13px;margin-top:6px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:8px;color:#1e293b;cursor:pointer;line-height:1.4}
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>Kage Translate</h1>
+    <p>English ↔ O‘zbek rasm tarjimasi</p>
+  </header>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <label>Qaysi tildan</label>
+        <select id="sourceLang"><option value="eng">English</option><option value="uzb">O‘zbek</option></select>
+      </div>
+      <div>
+        <label>Qaysi tilga</label>
+        <select id="targetLang"><option value="uzb">O‘zbek</option><option value="eng">English</option></select>
+      </div>
+    </div>
+
+    <div class="upload-area" id="uploadArea">
+      <p>Rasmni bosib tanlang</p>
+      <small>jpg, png, webp</small>
+      <input type="file" id="fileInput" accept="image/*" hidden>
+      <img id="preview" alt="Preview">
+    </div>
+
+    <button class="btn" id="translateBtn" disabled>Tarjima qilish</button>
+    <div class="status" id="status"></div>
+  </div>
+
+  <div class="card result-section" id="resultSection">
+    <label>Natija</label>
+    <canvas id="resultCanvas"></canvas>
+    <div class="actions">
+      <button class="btn" id="applyBtn">Rasmga qayta joylash</button>
+      <button class="btn btn-secondary" id="downloadBtn">Rasmni saqlash</button>
+    </div>
+    <label style="margin-top:18px">Tarjimani tahrirlash</label>
+    <div id="items"></div>
+  </div>
+
+  <footer>Kage Translate • Faqat tekin • v18</footer>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const uploadArea=$('uploadArea'),fileInput=$('fileInput'),preview=$('preview'),
+      translateBtn=$('translateBtn'),statusEl=$('status'),resultSection=$('resultSection'),
+      sourceLang=$('sourceLang'),targetLang=$('targetLang'),canvas=$('resultCanvas'),itemsBox=$('items');
+let selectedUrl=null,state=null;
+
+uploadArea.addEventListener('click',()=>fileInput.click());
+fileInput.addEventListener('change',e=>{if(e.target.files[0])handleFile(e.target.files[0]);});
+
+async function handleFile(file){
+  if(!file.type.startsWith('image/')) return showStatus('Faqat rasm yuklash mumkin','error');
+  try{
+    const buf=await file.arrayBuffer();
+    const blob=new Blob([buf],{type:file.type});
+    if(selectedUrl) URL.revokeObjectURL(selectedUrl);
+    selectedUrl=URL.createObjectURL(blob);
+    preview.src=selectedUrl;
+    preview.style.display='block';
+    translateBtn.disabled=false;
+    resultSection.classList.remove('show');
+    showStatus('','');
+  }catch(e){ showStatus('Faylni o‘qib bo‘lmadi. Rasmni qayta tanlang.','error'); }
+}
+function showStatus(msg,type){statusEl.textContent=msg;statusEl.className='status '+(type||'');}
+function loadImg(url){
+  return new Promise((res,rej)=>{
+    const img=new Image();
+    img.onload=()=>res(img);
+    img.onerror=()=>rej(new Error('Rasm ochilmadi. Rasmni qayta tanlang.'));
+    img.src=url;
+  });
+}
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function decodeEnt(s){const t=document.createElement('textarea');t.innerHTML=s;return t.value;}
+const lumOf=(d,p)=>(d[p]*299+d[p+1]*587+d[p+2]*114)/1000;
+
+// ---------- Tarjima ----------
+async function translate(text,from,to){
+  let t=text.replace(/\s+/g,' ').trim();
+  {const lt=t.replace(/[^\p{L}]/gu,''),up=lt.replace(/[^\p{Lu}]/gu,'');
+   if(lt.length&&up.length/lt.length>=0.7) t=t.toLowerCase().replace(/(^\s*|[.!?]\s+)(\p{L})/gu,(m,a,b)=>a+b.toUpperCase());}
+  t=t.slice(0,450);
+  try{
+    const r=await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(t)}`);
+    const j=await r.json();
+    const g=(j[0]||[]).map(x=>x[0]).join('');
+    if(g) return g;
+  }catch(e){}
+  for(let k=0;k<2;k++){
+    try{
+      const r=await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(t)}&langpair=${from}|${to}`);
+      const j=await r.json();
+      const res=j.responseData&&j.responseData.translatedText;
+      if(res&&!/MYMEMORY WARNING|QUERY LENGTH/i.test(res)) return decodeEnt(res);
+    }catch(e){}
+    await sleep(600);
+  }
+  return null;
+}
+function polish(tr,to){
+  tr=tr.replace(/\s+/g,' ').trim();
+  if(to==='uz') tr=tr.replace(/([OoGg])['’‘`´]/g,'$1ʻ');
+  return tr;
+}
+
+// ---------- Bir nechta tarjimon (Google, Bing, MyMemory) ----------
+const withTimeout=(p,ms)=>Promise.race([p,new Promise((_,r)=>setTimeout(()=>r(new Error('vaqt')),ms||9000))]);
+function prepEn(text,from){
+  let t=text.replace(/\s+/g,' ').trim();
+  const lt=t.replace(/[^\p{L}]/gu,''),up=lt.replace(/[^\p{Lu}]/gu,'');
+  if(lt.length&&up.length/lt.length>=0.7){
+    t=t.toLowerCase().replace(/(^\s*|[.!?]\s+)(\p{L})/gu,(m,a,b)=>a+b.toUpperCase());
+    if(from==='en') t=t.replace(/\bi\b/g,'I');
+  }
+  return t.slice(0,450);
+}
+async function trGoogle(t,from,to){
+  const r=await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(t)}`);
+  const j=await r.json();return (j[0]||[]).map(x=>x[0]).join('');
+}
+let msTok=null,msExp=0;
+async function trBing(t,from,to){
+  if(!msTok||Date.now()>msExp){const a=await fetch('https://edge.microsoft.com/translate/auth');msTok=await a.text();msExp=Date.now()+8*60*1000;}
+  const r=await fetch(`https://api-edge.cognitive.microsofttranslator.com/translate?from=${from}&to=${to}&api-version=3.0`,
+    {method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+msTok},body:JSON.stringify([{Text:t}])});
+  const j=await r.json();return j[0].translations[0].text;
+}
+async function trMyMemory(t,from,to){
+  const r=await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(t)}&langpair=${from}|${to}`);
+  const j=await r.json();const res=j.responseData&&j.responseData.translatedText;
+  if(!res||/MYMEMORY WARNING|QUERY LENGTH/i.test(res)) throw new Error('mm');
+  return decodeEnt(res);
+}
+async function trLingva(t,from,to){
+  const r=await fetch(`https://lingva.ml/api/v1/${from}/${to}/${encodeURIComponent(t)}`);
+  const j=await r.json();return j.translation;
+}
+const grams=s=>{s=s.toLowerCase().replace(/[^\p{L}\p{N} ]/gu,'').replace(/\s+/g,' ');const g=new Set();for(let i=0;i<s.length-2;i++)g.add(s.slice(i,i+3));return g;};
+const dice=(a,b)=>{if(!a.size||!b.size)return 0;let n=0;for(const x of a)if(b.has(x))n++;return 2*n/(a.size+b.size);};
+function pickBest(c){ // eng ko'p tarjimonga o'xshash variant (konsensus)
+  if(c.length<3) return c[0].t;
+  const g=c.map(x=>grams(x.t));let bi=0,bs=-1;
+  c.forEach((x,i)=>{let sc=0;c.forEach((y,j)=>{if(i!==j)sc+=dice(g[i],g[j]);});sc=sc/(c.length-1)+(i===0?0.03:0);if(sc>bs){bs=sc;bi=i;}});
+  return c[bi].t;
+}
+async function translateAll(text,from,to){
+  const t=prepEn(text,from);
+  const src=[['Google',trGoogle],['Bing',trBing],['MyMemory',trMyMemory]];
+  const rs=await Promise.all(src.map(([n,f])=>withTimeout(f(t,from,to)).then(x=>({n,t:polish((x||'').trim(),to)})).catch(()=>null)));
+  let c=rs.filter(r=>r&&r.t&&r.t.toLowerCase()!==t.toLowerCase());
+  if(!c.length){try{const x=await withTimeout(trLingva(t,from,to));if(x)c=[{n:'Lingva',t:polish(x.trim(),to)}];}catch(e){}}
+  if(!c.length) return null;
+  const m=new Map();
+  for(const r of c){const k=r.t.toLowerCase();if(m.has(k))m.get(k).n+=' + '+r.n;else m.set(k,{n:r.n,t:r.t});}
+  return {best:pickBest(c),alts:[...m.values()]};
+}
