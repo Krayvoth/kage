@@ -201,3 +201,170 @@ async function translateAll(text,from,to){
   for(const r of c){const k=r.t.toLowerCase();if(m.has(k))m.get(k).n+=' + '+r.n;else m.set(k,{n:r.n,t:r.t});}
   return {best:pickBest(c),alts:[...m.values()]};
 }
+
+// ---------- 1) Matnni topish: harflar -> qatorlar -> bloklar ----------
+function findTextBlocks(ctx,W,H){
+  const sD=Math.min(1,1400/W),Wd=Math.max(1,Math.round(W*sD)),Hd=Math.max(1,Math.round(H*sD)),N=Wd*Hd;
+  const c=document.createElement('canvas');c.width=Wd;c.height=Hd;
+  const cx=c.getContext('2d',{willReadFrequently:true});cx.imageSmoothingQuality='high';
+  cx.drawImage(ctx.canvas,0,0,Wd,Hd);
+  const d=cx.getImageData(0,0,Wd,Hd).data,g=new Uint8Array(N);
+  for(let i=0,p=0;i<N;i++,p+=4) g[i]=(d[p]*299+d[p+1]*587+d[p+2]*114)/1000;
+  const INK=115,lab=new Int32Array(N),stack=new Int32Array(N),isLetter=new Uint8Array((N>>1)+4),letters=[];
+  const maxH=Math.max(24,Math.min(110,Math.round(Wd*0.07)));
+  let id=0;
+  for(let s=0;s<N;s++){
+    if(lab[s]||g[s]>=INK) continue;
+    id++;
+    let sp=0;stack[sp++]=s;lab[s]=id;
+    let x0=Wd,y0=Hd,x1=0,y1=0,area=0;
+    while(sp){
+      const i=stack[--sp],x=i%Wd,y=(i-x)/Wd;area++;
+      if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y;
+      for(let dy=-1;dy<=1;dy++){const yy=y+dy;if(yy<0||yy>=Hd)continue;
+        for(let dx=-1;dx<=1;dx++){const xx=x+dx;if(xx<0||xx>=Wd)continue;
+          const j=yy*Wd+xx;if(!lab[j]&&g[j]<INK){lab[j]=id;stack[sp++]=j;}}}
+    }
+    const w=x1-x0+1,h=y1-y0+1,fr=area/(w*h);
+    const sizeOk=h<=maxH&&w<=Math.min(10*h+10,320);
+    let ok=area>=8&&h>=5&&sizeOk&&fr>=0.1&&(fr<=0.92||w<=0.4*h)&&h/w<=14;
+    if(ok){ // atrofi yorug' bo'lishi kerak (pufakcha, izoh qutisi)
+      const smp=[],rx0=Math.max(0,x0-3),ry0=Math.max(0,y0-3),rx1=Math.min(Wd-1,x1+3),ry1=Math.min(Hd-1,y1+3);
+      const sx=Math.max(1,Math.floor((rx1-rx0)/6)),sy=Math.max(1,Math.floor((ry1-ry0)/6));
+      for(let x=rx0;x<=rx1;x+=sx){smp.push(g[ry0*Wd+x],g[ry1*Wd+x]);}
+      for(let y=ry0;y<=ry1;y+=sy){smp.push(g[y*Wd+rx0],g[y*Wd+rx1]);}
+      smp.sort((a,b)=>a-b);ok=smp[smp.length>>1]>=150;
+    }
+    isLetter[id]=ok?1:(sizeOk?2:0); // 1 harf, 2 kichik belgi (o'chiriladi), 0 katta chiziq (himoyalanadi)
+    if(ok) letters.push({x0,y0,x1,y1,h});
+  }
+  const med=a=>{const t=[...a].sort((u,v)=>u-v);return t[t.length>>1];};
+  letters.sort((a,b)=>a.x0-b.x0);
+  const lines=[];
+  for(const c of letters){
+    let best=null;
+    for(const ln of lines){
+      const gap=c.x0-ln.x1;
+      if(gap>1.5*ln.h||gap<-0.35*ln.h) continue;
+      if(Math.min(ln.y1,c.y1)-Math.max(ln.y0,c.y0)<0.5*Math.min(ln.h,c.h)) continue;
+      if(c.h<0.55*ln.h||c.h>1.8*ln.h) continue;
+      best=ln;break;
+    }
+    if(best){best.hs.push(c.h);best.n++;best.x1=Math.max(best.x1,c.x1);best.y0=Math.min(best.y0,c.y0);best.y1=Math.max(best.y1,c.y1);best.h=med(best.hs);}
+    else lines.push({hs:[c.h],n:1,x0:c.x0,x1:c.x1,y0:c.y0,y1:c.y1,h:c.h});
+  }
+  const ls=lines.filter(l=>l.n>=2&&l.x1-l.x0>=1.2*l.h).sort((a,b)=>a.y0-b.y0||a.x0-b.x0);
+  const blocks=[];
+  for(const ln of ls){
+    let bk=null;
+    for(const b of blocks){
+      const last=b.lines[b.lines.length-1],gap=ln.y0-last.y1;
+      if(gap>1.0*b.h||gap<-0.4*b.h||ln.h<0.7*b.h||ln.h>1.4*b.h) continue;
+      if(Math.min(b.x1,ln.x1)-Math.max(b.x0,ln.x0)<0.25*Math.min(b.x1-b.x0,ln.x1-ln.x0)) continue;
+      bk=b;break;
+    }
+    if(bk){bk.lines.push(ln);bk.x0=Math.min(bk.x0,ln.x0);bk.x1=Math.max(bk.x1,ln.x1);bk.y1=Math.max(bk.y1,ln.y1);bk.h=med(bk.lines.map(l=>l.h));bk.n+=ln.n;}
+    else blocks.push({lines:[ln],x0:ln.x0,x1:ln.x1,y0:ln.y0,y1:ln.y1,h:ln.h,n:ln.n});
+  }
+  const out=blocks.filter(b=>b.n>=3&&b.x1-b.x0>=2.5*b.h).sort((a,b)=>a.y0-b.y0||a.x0-b.x0).slice(0,90);
+  for(const b of out){ // qator oralig'i va tekislash
+    const cy=b.lines.map(l=>(l.y0+l.y1)/2),pitches=[];
+    for(let i=1;i<cy.length;i++) pitches.push((cy[i]-cy[i-1])/b.h);
+    b.pitchR=Math.min(2.4,Math.max(1.35,pitches.length?med(pitches):1.7));
+    const sd=a=>{const m=a.reduce((p,q)=>p+q,0)/a.length;return Math.sqrt(a.reduce((p,q)=>p+(q-m)*(q-m),0)/a.length);};
+    b.align=(b.lines.length>1&&sd(b.lines.map(l=>l.x0))<0.6*sd(b.lines.map(l=>(l.x0+l.x1)/2)))?'left':'center';
+  }
+  return {blocks:out,sD,Wd,Hd,lab,isLetter};
+}
+
+// Blok atrofini tayyorlash: fon, matn rangi, himoyalangan piksellar (chiziq, rasm)
+function prepBlock(ctx,det,b){
+  const {sD,Wd,lab,isLetter}=det,cap=b.h/sD,pad=Math.round(0.4*cap)+2;
+  const tx0=Math.floor(b.x0/sD),ty0=Math.floor(b.y0/sD),tx1=Math.ceil((b.x1+1)/sD),ty1=Math.ceil((b.y1+1)/sD);
+  const X0=Math.max(0,tx0-pad),Y0=Math.max(0,ty0-pad),X1=Math.min(ctx.canvas.width,tx1+pad),Y1=Math.min(ctx.canvas.height,ty1+pad);
+  const w=X1-X0,h=Y1-Y0,N=w*h,px=ctx.getImageData(X0,Y0,w,h).data;
+  const ls=[];for(let i=0;i<N;i+=7) ls.push(lumOf(px,i*4));ls.sort((u,v)=>u-v);
+  const bgL=ls[Math.floor(ls.length*0.7)];
+  const prot=new Uint8Array(N);
+  for(let y=0;y<h;y++){const dy=Math.min(det.Hd-1,Math.floor((Y0+y)*sD));
+    for(let x=0;x<w;x++){const l=lab[dy*Wd+Math.min(Wd-1,Math.floor((X0+x)*sD))];if(l>0&&isLetter[l]===0)prot[y*w+x]=1;}}
+  const R=[],G=[],B=[],ink=[];
+  for(let i=0;i<N;i++){ if(prot[i]) continue; const p=i*4,l=lumOf(px,p);
+    if(l>=bgL*0.85){ if(i%3===0){R.push(px[p]);G.push(px[p+1]);B.push(px[p+2]);} }
+    else if(l<bgL*0.5) ink.push([l,p]); }
+  const md=a=>a.length?a.sort((u,v)=>u-v)[a.length>>1]:255;
+  const fill=[md(R),md(G),md(B)];
+  let color='#000';
+  if(ink.length>=15){ink.sort((u,v)=>u[0]-v[0]);const k=Math.max(15,Math.floor(ink.length*0.4));let r=0,g=0,bl=0;
+    for(let j=0;j<k;j++){const p=ink[j][1];r+=px[p];g+=px[p+1];bl+=px[p+2];}
+    color=`rgb(${Math.round(r/k)},${Math.round(g/k)},${Math.round(bl/k)})`;}
+  const ep=Math.round(0.22*cap)+1;
+  return {X0,Y0,w,h,bgL,prot,fill,color,cap,tx0,ty0,tx1,ty1,
+    rects:b.lines.map(l=>({x0:Math.max(0,Math.floor(l.x0/sD)-ep-X0),y0:Math.max(0,Math.floor(l.y0/sD)-ep-Y0),x1:Math.min(w,Math.ceil((l.x1+1)/sD)+ep-X0),y1:Math.min(h,Math.ceil((l.y1+1)/sD)+ep-Y0)})),
+    nLines:b.lines.length,pitchR:b.pitchR,align:b.align,px};
+}
+
+// ---------- OCR natijasi haqiqiy matnga o'xshaydimi ----------
+const SHORTW=new Set(['no','oh','ah','uh','ok','hi','go','so','me','we','he','it','is','in','on','to','of','or','up','if','by','my','as','at','be','do','an','am','us','i','a']);
+function plausible(txt,data){
+  const toks=txt.split(' ').filter(Boolean);
+  const good=toks.filter(w=>{
+    const l=w.replace(/[^\p{L}]/gu,'');
+    return (l.length>=3&&/[aeiouyAEIOUY]/.test(l))||(l.length>=1&&l.length<=2&&SHORTW.has(l.toLowerCase()));
+  });
+  if(!good.length||good.length/toks.length<0.5) return false;
+  const ws=data.words||(data.blocks||[]).flatMap(b=>(b.paragraphs||[]).flatMap(p=>(p.lines||[]).flatMap(l=>l.words||[])));
+  if(!ws.length) return data.confidence>=40;
+  return ws.filter(w=>w.confidence>=55&&w.text.replace(/[^\p{L}]/gu,'').length>=2).length>=1;
+}
+
+// ---------- Matnni asl joyiga, asl ko'rinishida joylash ----------
+const FONT=s=>`bold ${s}px "Comic Sans MS","Segoe UI",Roboto,Arial,sans-serif`;
+function layoutRect(ctx,text,rw,rh,size0,pitchR){
+  const words=text.split(' ').filter(Boolean);
+  const mk=(size,forced)=>{
+    ctx.font=FONT(size);
+    const cap=size*0.72,pitch=Math.max(cap*1.3,pitchR*cap);
+    let mw=0;for(const wd of words) mw=Math.max(mw,ctx.measureText(wd).width);
+    if(mw>rw&&!forced) return null;
+    const wrap=W=>{const L=[];let cur='';for(const wd of words){const t=cur?cur+' '+wd:wd;if(!cur||ctx.measureText(t).width<=W)cur=t;else{L.push(cur);cur=wd;}}if(cur)L.push(cur);return L;};
+    let lines=wrap(rw);
+    if(!forced&&(lines.length-1)*pitch+cap>rh) return null;
+    let lo=Math.min(mw,rw),hi=rw;
+    for(let k=0;k<12;k++){const mid=(lo+hi)/2;if(wrap(mid).length<=lines.length)hi=mid;else lo=mid;}
+    lines=wrap(hi);
+    return {size,lines,pitch,cap};
+  };
+  for(let size=Math.max(9,Math.round(size0));size>=9;size--){const r=mk(size,false);if(r) return r;}
+  return mk(9,true);
+}
+function eraseItem(ctx,it){
+  const {X0,Y0,w,h,bgL,prot,fill,cap}=it;
+  const id=ctx.getImageData(X0,Y0,w,h),px=id.data,N=w*h,T=bgL*0.74,m=new Uint8Array(N);
+  for(const q of it.rects)for(let y=q.y0;y<q.y1;y++)for(let x=q.x0;x<q.x1;x++){const i=y*w+x;if(!prot[i]&&lumOf(px,i*4)<T)m[i]=1;}
+  const r=Math.max(1,Math.round(cap*0.09)),t=new Uint8Array(N),u=new Uint8Array(N);
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){if(m[y*w+x]){for(let k=Math.max(0,x-r);k<=Math.min(w-1,x+r);k++)t[y*w+k]=1;}}
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){if(t[y*w+x]){for(let k=Math.max(0,y-r);k<=Math.min(h-1,y+r);k++)u[k*w+x]=1;}}
+  for(let i=0;i<N;i++){if(u[i]&&!prot[i]){const p=i*4;px[p]=fill[0];px[p+1]=fill[1];px[p+2]=fill[2];}}
+  ctx.putImageData(id,X0,Y0);
+}
+function drawItem(ctx,it){
+  const text=it.upper?it.uz.toUpperCase():it.uz;
+  if(!text.trim()) return;
+  const cx=(it.tx0+it.tx1)/2,cy=(it.ty0+it.ty1)/2,cap=it.cap;
+  const rw=(it.tx1-it.tx0)*1.12+0.5*cap,rh=(it.ty1-it.ty0)*1.15+(it.nLines===1?2.2:0.9)*cap;
+  const L=layoutRect(ctx,text,rw,rh,cap/0.72,it.pitchR);
+  const blockH=(L.lines.length-1)*L.pitch+L.cap,top=cy-blockH/2+L.cap;
+  ctx.font=FONT(L.size);ctx.fillStyle=it.color;ctx.textBaseline='alphabetic';
+  ctx.textAlign=it.align==='left'?'left':'center';
+  const x=it.align==='left'?it.tx0:cx;
+  L.lines.forEach((l,i)=>ctx.fillText(l,x,top+i*L.pitch));
+}
+function render(){
+  if(!state) return;
+  const {ctx,img,items}=state;
+  ctx.drawImage(img,0,0);
+  const act=items.filter(it=>it.uz.trim());
+  act.forEach(it=>eraseItem(ctx,it));
+  act.forEach(it=>drawItem(ctx,it));
+}
