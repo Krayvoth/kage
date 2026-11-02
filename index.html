@@ -303,3 +303,184 @@ function findTextBlocks(ctx,W,H){
   }
   return {blocks:out,sD,Wd,Hd,lab,isLetter};
 }
+// Blok atrofini tayyorlash: fon, matn rangi, himoyalangan piksellar (chiziq, rasm)
+function prepBlock(ctx,det,b){
+  const {sD,Wd,lab,isLetter}=det,cap=b.h/sD,pad=Math.round(0.4*cap)+2;
+  const tx0=Math.floor(b.x0/sD),ty0=Math.floor(b.y0/sD),tx1=Math.ceil((b.x1+1)/sD),ty1=Math.ceil((b.y1+1)/sD);
+  const X0=Math.max(0,tx0-pad),Y0=Math.max(0,ty0-pad),X1=Math.min(ctx.canvas.width,tx1+pad),Y1=Math.min(ctx.canvas.height,ty1+pad);
+  const w=X1-X0,h=Y1-Y0,N=w*h,px=ctx.getImageData(X0,Y0,w,h).data;
+  const ls=[];for(let i=0;i<N;i+=7) ls.push(lumOf(px,i*4));ls.sort((u,v)=>u-v);
+  const bgL=ls[Math.floor(ls.length*0.7)];
+  const prot=new Uint8Array(N);
+  for(let y=0;y<h;y++){const dy=Math.min(det.Hd-1,Math.floor((Y0+y)*sD));
+    for(let x=0;x<w;x++){const l=lab[dy*Wd+Math.min(Wd-1,Math.floor((X0+x)*sD))];if(l>0&&isLetter[l]===0)prot[y*w+x]=1;}}
+  const R=[],G=[],B=[],ink=[];
+  for(let i=0;i<N;i++){ if(prot[i]) continue; const p=i*4,l=lumOf(px,p);
+    if(l>=bgL*0.85){ if(i%3===0){R.push(px[p]);G.push(px[p+1]);B.push(px[p+2]);} }
+    else if(l<bgL*0.5) ink.push([l,p]); }
+  const md=a=>a.length?a.sort((u,v)=>u-v)[a.length>>1]:255;
+  const fill=[md(R),md(G),md(B)];
+  let color='#000';
+  if(ink.length>=15){ink.sort((u,v)=>u[0]-v[0]);const k=Math.max(15,Math.floor(ink.length*0.4));let r=0,g=0,bl=0;
+    for(let j=0;j<k;j++){const p=ink[j][1];r+=px[p];g+=px[p+1];bl+=px[p+2];}
+    color=`rgb(${Math.round(r/k)},${Math.round(g/k)},${Math.round(bl/k)})`;}
+  const ep=Math.round(0.22*cap)+1;
+  return {X0,Y0,w,h,bgL,prot,fill,color,cap,tx0,ty0,tx1,ty1,
+    rects:b.lines.map(l=>({x0:Math.max(0,Math.floor(l.x0/sD)-ep-X0),y0:Math.max(0,Math.floor(l.y0/sD)-ep-Y0),x1:Math.min(w,Math.ceil((l.x1+1)/sD)+ep-X0),y1:Math.min(h,Math.ceil((l.y1+1)/sD)+ep-Y0)})),
+    nLines:b.lines.length,pitchR:b.pitchR,align:b.align,px,
+    prof:b.lines.map(l=>({x0:l.x0/sD,x1:(l.x1+1)/sD,y0:l.y0/sD,y1:(l.y1+1)/sD}))};
+}
+
+// ---------- OCR natijasi haqiqiy matnga o'xshaydimi ----------
+const SHORTW=new Set(['no','oh','ah','uh','ok','hi','go','so','me','we','he','it','is','in','on','to','of','or','up','if','by','my','as','at','be','do','an','am','us','i','a']);
+function plausible(txt,data){
+  const toks=txt.split(' ').filter(Boolean);
+  const good=toks.filter(w=>{
+    const l=w.replace(/[^\p{L}]/gu,'');
+    return (l.length>=3&&/[aeiouyAEIOUY]/.test(l))||(l.length>=1&&l.length<=2&&SHORTW.has(l.toLowerCase()));
+  });
+  if(!good.length||good.length/toks.length<0.5) return false;
+  const ws=data.words||(data.blocks||[]).flatMap(b=>(b.paragraphs||[]).flatMap(p=>(p.lines||[]).flatMap(l=>l.words||[])));
+  if(!ws.length) return data.confidence>=40;
+  return ws.filter(w=>w.confidence>=55&&w.text.replace(/[^\p{L}]/gu,'').length>=2).length>=1;
+}
+
+// ---------- Matnni asl joyiga, asl ko'rinishida joylash ----------
+const FONTS={
+  neue:{n:'Comic Neue',css:'"Comic Neue","Comic Sans MS",sans-serif',w:700},
+  bangers:{n:'Bangers',css:'"Bangers","Comic Sans MS",sans-serif',w:400},
+  marker:{n:'Permanent Marker',css:'"Permanent Marker","Comic Sans MS",cursive',w:400},
+  neucha:{n:'Neucha',css:'"Neucha","Comic Sans MS",sans-serif',w:400},
+  sys:{n:'Standart (tizim)',css:'"Comic Sans MS","Segoe UI",Roboto,Arial,sans-serif',w:700}
+};
+let CUR='neue',GFONT='neue',CAPR=0.72;
+const FONTCSS=(k,s)=>`${FONTS[k].w} ${s}px ${FONTS[k].css}`;
+const FONT=s=>FONTCSS(CUR,s);
+function useFont(ctx,k){ // shriftni tanlash va bosh harf balandligini o'lchash
+  CUR=FONTS[k]?k:'sys';
+  ctx.font=FONT(100);
+  const a=ctx.measureText('H').actualBoundingBoxAscent;
+  CAPR=(a>40&&a<110)?a/100:0.72;
+}
+const glyphCache={};
+function hasGlyph(ctx,ch,k){ // shriftda belgi bormi? (tizim shrifti bilan kengligini solishtiramiz)
+  const key=k+ch;if(key in glyphCache) return glyphCache[key];
+  ctx.font=FONTCSS(k,60);const a=ctx.measureText(ch).width;
+  ctx.font='400 60px sans-serif';const b=ctx.measureText(ch).width;
+  return glyphCache[key]=Math.abs(a-b)>0.5;
+}
+function fixGlyphs(ctx,t){ // oʻ, gʻ belgisi yo'q shriftda ‘ yoki ' ga almashtiramiz
+  if(CUR==='sys') return t;
+  if(!hasGlyph(ctx,'ʻ',CUR)) t=t.replace(/ʻ/g,'‘');
+  if(!hasGlyph(ctx,'‘',CUR)) t=t.replace(/‘/g,"'");
+  return t;
+}
+async function loadFonts(){
+  const sample='Oʻzbek gʻoya shahar chiroyli ‘’ ABC xyz';
+  await Promise.all(Object.keys(FONTS).filter(k=>k!=='sys').map(k=>document.fonts.load(FONTCSS(k,24),sample).catch(()=>{})));
+  for(const k in glyphCache) delete glyphCache[k];
+}
+const fontsReady=(typeof document!=='undefined'&&document.fonts&&document.fonts.load)?loadFonts():Promise.resolve();
+function layoutRect(ctx,text,rw,rh,size0,pitchR){
+  const words=text.split(' ').filter(Boolean);
+  const mk=(size,forced)=>{
+    ctx.font=FONT(size);
+    const cap=size*CAPR,pitch=Math.max(cap*1.3,pitchR*cap);
+    let mw=0;for(const wd of words) mw=Math.max(mw,ctx.measureText(wd).width);
+    if(mw>rw&&!forced) return null;
+    const wrap=W=>{const L=[];let cur='';for(const wd of words){const t=cur?cur+' '+wd:wd;if(!cur||ctx.measureText(t).width<=W)cur=t;else{L.push(cur);cur=wd;}}if(cur)L.push(cur);return L;};
+    let lines=wrap(rw);
+    if(!forced&&(lines.length-1)*pitch+cap>rh) return null;
+    let lo=Math.min(mw,rw),hi=rw;
+    for(let k=0;k<12;k++){const mid=(lo+hi)/2;if(wrap(mid).length<=lines.length)hi=mid;else lo=mid;}
+    lines=wrap(hi);
+    return {size,lines,pitch,cap};
+  };
+  for(let size=Math.max(9,Math.round(size0));size>=9;size--){const r=mk(size,false);if(r) return r;}
+  return mk(9,true);
+}
+// 7-qoida: har bir matnning o'z shakli (qatorlar kengligi) saqlanadi, o'zbekcha matn shu shaklga moslanadi
+function layoutProfile(ctx,text,it){
+  const words=text.split(' ').filter(Boolean),P=it.prof,m=P?P.length:0,cap0=it.cap;
+  if(!words.length||!m) return null;
+  const pts=P.map((l,k)=>({t:m===1?0.5:(k+0.5)/m,w:l.x1-l.x0,c:(l.x0+l.x1)/2,x0:l.x0}));
+  const at=(t,key)=>{
+    if(m===1||t<=pts[0].t) return pts[0][key];
+    if(t>=pts[m-1].t) return pts[m-1][key];
+    for(let k=0;k<m-1;k++){if(t<=pts[k+1].t){const u=(t-pts[k].t)/(pts[k+1].t-pts[k].t);return pts[k][key]*(1-u)+pts[k+1][key]*u;}}
+    return pts[m-1][key];
+  };
+  const F=(typeof state!=='undefined'&&state?state.scale:0.9)*(it.k||1);
+  const cy=(it.ty0+it.ty1)/2,rh=((it.ty1-it.ty0)*1.15+(m===1?2.2:0.9)*cap0)*Math.max(1,F);
+  const wcache=new Map(),K=words.length;
+  const lw=(a,b)=>{const k=a*200+b;let v=wcache.get(k);if(v===undefined){v=ctx.measureText(words.slice(a,b).join(' ')).width;wcache.set(k,v);}return v;};
+  // n qatorga: har bir qator sig'imi asl qator kengligiga mutanosib; so'zlar shaklga eng yaqin taqsimlanadi
+  const tryN=(n,f)=>{
+    if(K<n) return null;
+    const Wc=[];for(let i=0;i<n;i++) Wc.push(at((i+0.5)/n,'w')*1.1*f*F+0.3*cap0*F);
+    const INF=1e18,dp=Array.from({length:n+1},()=>Array(K+1).fill(INF)),pr=Array.from({length:n+1},()=>Array(K+1).fill(-1));
+    dp[0][0]=0;
+    for(let i=1;i<=n;i++)for(let j=i;j<=K;j++)for(let a=i-1;a<j;a++){
+      if(dp[i-1][a]>=INF) continue;
+      const w=lw(a,j);if(w>Wc[i-1]) continue;
+      const c=dp[i-1][a]+(Wc[i-1]-w)*(Wc[i-1]-w);
+      if(c<dp[i][j]){dp[i][j]=c;pr[i][j]=a;}
+    }
+    if(dp[n][K]>=INF) return null;
+    const lines=[];let j=K;
+    for(let i=n;i>=1;i--){const a=pr[i][j];lines.unshift(words.slice(a,j).join(' '));j=a;}
+    return lines;
+  };
+  for(let size=Math.max(9,Math.round(cap0/CAPR*F));size>=9;size--){
+    ctx.font=FONT(size);wcache.clear();
+    const cap=size*CAPR,pitch=Math.max(cap*1.3,it.pitchR*cap),nMax=Math.max(1,Math.floor((rh-cap)/pitch)+1);
+    for(let n=1;n<=nMax;n++){
+      let best=tryN(n,1);if(!best) continue;
+      let lo=0.5,hi=1;
+      for(let k=0;k<10;k++){const mid=(lo+hi)/2,r=tryN(n,mid);if(r){best=r;hi=mid;}else lo=mid;}
+      const nn=best.length,top=cy-((nn-1)*pitch+cap)/2+cap;
+      return {size,lines:best.map((q,i)=>({text:q,x:it.align==='left'?at((i+0.5)/nn,'x0'):at((i+0.5)/nn,'c'),y:top+i*pitch}))};
+    }
+  }
+  return null;
+}
+function eraseItem(ctx,it){
+  const {X0,Y0,w,h,bgL,prot,fill,cap}=it;
+  const id=ctx.getImageData(X0,Y0,w,h),px=id.data,N=w*h,T=bgL*0.74,m=new Uint8Array(N);
+  for(const q of it.rects)for(let y=q.y0;y<q.y1;y++)for(let x=q.x0;x<q.x1;x++){const i=y*w+x;if(!prot[i]&&lumOf(px,i*4)<T)m[i]=1;}
+  const r=Math.max(1,Math.round(cap*0.09)),t=new Uint8Array(N),u=new Uint8Array(N);
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){if(m[y*w+x]){for(let k=Math.max(0,x-r);k<=Math.min(w-1,x+r);k++)t[y*w+k]=1;}}
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){if(t[y*w+x]){for(let k=Math.max(0,y-r);k<=Math.min(h-1,y+r);k++)u[k*w+x]=1;}}
+  for(let i=0;i<N;i++){if(u[i]&&!prot[i]){const p=i*4;px[p]=fill[0];px[p+1]=fill[1];px[p+2]=fill[2];}}
+  ctx.putImageData(id,X0,Y0);
+}
+function drawItem(ctx,it){
+  useFont(ctx,(it.font&&FONTS[it.font])?it.font:GFONT);
+  let text=it.upper?it.uz.toUpperCase():it.uz;
+  text=fixGlyphs(ctx,text);
+  if(!text.trim()) return;
+  const LP=layoutProfile(ctx,text,it);
+  if(LP){
+    ctx.font=FONT(LP.size);ctx.fillStyle=it.color;ctx.textBaseline='alphabetic';
+    ctx.textAlign=it.align==='left'?'left':'center';
+    LP.lines.forEach(l=>ctx.fillText(l.text,l.x,l.y));
+    return;
+  }
+  const cx=(it.tx0+it.tx1)/2,cy=(it.ty0+it.ty1)/2,cap=it.cap;
+  const f=(state?state.scale:0.9)*(it.k||1); // matn hajmi (umumiy va har bir matn uchun)
+  const rw=((it.tx1-it.tx0)*1.12+0.5*cap)*f,rh=((it.ty1-it.ty0)*1.15+(it.nLines===1?2.2:0.9)*cap)*f;
+  const L=layoutRect(ctx,text,rw,rh,cap/CAPR*f,it.pitchR);
+  const blockH=(L.lines.length-1)*L.pitch+L.cap,top=cy-blockH/2+L.cap;
+  ctx.font=FONT(L.size);ctx.fillStyle=it.color;ctx.textBaseline='alphabetic';
+  ctx.textAlign=it.align==='left'?'left':'center';
+  const x=it.align==='left'?it.tx0:cx;
+  L.lines.forEach((l,i)=>ctx.fillText(l,x,top+i*L.pitch));
+}
+function render(){
+  if(!state) return;
+  const {ctx,img,items}=state;
+  ctx.drawImage(img,0,0);
+  const act=items.filter(it=>it.uz.trim());
+  act.forEach(it=>eraseItem(ctx,it));
+  act.forEach(it=>drawItem(ctx,it));
+}
