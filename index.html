@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kage Translate</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bangers&family=Comic+Neue:wght@700&family=Neucha&family=Permanent+Marker&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>if(window.pdfjsLib)pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";</script>
+<link rel="stylesheet" href="style.css?v=26">
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>Kage Translate</h1>
+    <p>English ↔ O‘zbek rasm tarjimasi</p>
+  </header>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <label>Qaysi tildan</label>
+        <select id="sourceLang"><option value="eng">English</option><option value="uzb">O‘zbek</option></select>
+      </div>
+      <div>
+        <label>Qaysi tilga</label>
+        <select id="targetLang"><option value="uzb">O‘zbek</option><option value="eng">English</option></select>
+      </div>
+    </div>
+
+    <div class="upload-area" id="uploadArea">
+      <p>Rasm yoki PDF tanlang</p>
+      <small>jpg, png, webp, pdf</small>
+      <input type="file" id="fileInput" accept="image/*,application/pdf" hidden>
+      <img id="preview" alt="Preview">
+    </div>
+
+    <div class="row" style="align-items:flex-end;margin-bottom:6px">
+      <div><label>Shrift</label><select id="fontSel"></select></div>
+      <div><button class="mini" id="fontUp" style="width:100%;margin:0 0 2px">Shriftni yuklash</button><input type="file" id="fontFile" accept=".ttf,.otf,.woff,.woff2" hidden></div>
+    </div>
+    <div class="fprev" id="fontPrev">Oʻzbek gʻoya, shahar, chiroyli!</div>
+    <small class="fnote" id="fontNote"></small>
+    <label style="margin-top:4px">PDF sifati (saqlanadigan fayl)</label>
+    <select id="pdfQ" style="margin-bottom:12px"><option value="0.95">Yuqori sifat (fayl kattaroq)</option><option value="0.85">O‘rtacha (fayl kichikroq)</option></select>
+    <button class="btn" id="translateBtn" disabled>Tarjima qilish</button>
+    <div class="status" id="status"></div>
+  </div>
+
+  <div class="card" id="readerCard" style="display:none">
+    <div class="rhead"><span id="rInfo"></span><button class="mini" id="stopBtn" style="display:none;margin:0">To‘xtatish</button></div>
+    <button class="btn" id="pdfSaveBtn">PDFni saqlash</button>
+    <div class="sharebar"><span>Ulashish:</span><button class="sh wa" id="shWa">WhatsApp</button><button class="sh tg" id="shTg">Telegram</button></div>
+    <div id="reader" style="margin-top:10px"></div>
+  </div>
+
+  <div class="card result-section" id="resultSection">
+    <label id="editTitle">Natija</label>
+    <canvas id="resultCanvas"></canvas>
+    <label id="scaleLbl" style="margin-top:6px">Matn hajmi: 90%</label>
+    <input type="range" id="scale" min="50" max="140" value="90">
+    <div class="actions">
+      <button class="btn" id="applyBtn">Rasmga qayta joylash</button>
+      <button class="btn btn-secondary" id="downloadBtn">Rasmni saqlash</button>
+    </div>
+    <label style="margin-top:18px">Tarjimani tahrirlash</label>
+    <div id="items"></div>
+  </div>
+
+  <footer>Kage Translate • Faqat tekin • v25</footer>
+</div>
+
+<script src="kage-core.js?v=26"></script>
+<script src="kage-pdf.js?v=26"></script>
+<script src="kage-strip.js?v=26"></script>
+<script src="kage-reader.js?v=26"></script>
+<script src="kage-util.js?v=26"></script>
+<script src="kage-translators.js?v=26"></script>
+<script src="kage-detect.js?v=26"></script>
+<script src="kage-ocrfilter.js?v=26"></script>
+<script src="kage-render.js?v=26"></script>
+<script src="kage-cards.js?v=26"></script>
+<script src="kage-flow.js?v=26"></script>
+<script src="kage-pdfout.js?v=26"></script>
+<script src="kage-ui.js?v=26"></script>
+</body>
+</html>
